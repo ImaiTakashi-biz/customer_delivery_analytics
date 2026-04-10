@@ -22,7 +22,6 @@ pyinstaller `
     --hidden-import pyodbc `
     --hidden-import app.config.settings `
     --hidden-import app.ui.main_window `
-    --hidden-import app.ui.forecast_dialog `
     --hidden-import app.ui.table_model `
     --hidden-import matplotlib.backends.backend_qtagg `
     "$Root\app\main.py"

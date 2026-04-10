@@ -10,6 +10,26 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 import pandas as pd
 
 
+def _format_with_commas(val: Any) -> str:
+    """納品数・金額の表示用（例: 1000 → 1,000）。"""
+    if pd.isna(val):
+        return ""
+    try:
+        n = float(val)
+    except (TypeError, ValueError):
+        return str(val)
+    if n != n:  # NaN
+        return ""
+    rounded = round(n, 2)
+    # 実質整数なら小数なし
+    if abs(rounded - int(rounded)) < 1e-9:
+        return f"{int(rounded):,}"
+    s = f"{rounded:,.2f}"
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s
+
+
 class DataFrameTableModel(QAbstractTableModel):
     """読み取り専用の簡易テーブルモデル。"""
 
@@ -40,9 +60,11 @@ class DataFrameTableModel(QAbstractTableModel):
             return None
         if role in (Qt.DisplayRole, Qt.EditRole):
             val = self._df.iat[index.row(), index.column()]
+            col = self._df.columns[index.column()]
+            if col in ("納品数", "金額"):
+                return _format_with_commas(val)
             if pd.isna(val):
                 return ""
-            # 数値はそのまま（表示は右寄せにできるがビュー側で実施）
             if isinstance(val, float):
                 return f"{val:.2f}".rstrip("0").rstrip(".")
             return str(val)
