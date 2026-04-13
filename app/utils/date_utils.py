@@ -12,9 +12,10 @@ from app.config import settings
 
 
 def default_date_range() -> Tuple[date, date]:
-    """仕様どおりの固定年範囲（レポート等で参照する場合用）。"""
+    """開始日は固定、終了日は前年末を返す。"""
     start = date(settings.DEFAULT_YEAR_START, 1, 1)
-    end = date(settings.DEFAULT_YEAR_END, 12, 31)
+    today = date.today()
+    end = date(today.year - 1, 12, 31)
     return start, end
 
 

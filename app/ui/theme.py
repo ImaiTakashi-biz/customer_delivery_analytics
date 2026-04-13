@@ -37,13 +37,11 @@ QFrame#dashboardSearchCard {
 QFrame#webSplitPanelLeft {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
-    border-left: 3px solid #2563eb;
     border-radius: 14px;
 }
 QFrame#webSplitPanelRight {
-    background-color: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-left: 3px solid #d97706;
+    background-color: #fcfdfb;
+    border: 1px solid #dbe4df;
     border-radius: 14px;
 }
 QLabel#panelSectionTitle {
@@ -132,6 +130,12 @@ QPushButton:disabled {
     background-color: #c5cad3;
     color: #f0f0f0;
 }
+QPushButton#forecastRunButton:disabled,
+QPushButton#searchPrimaryButton:disabled {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    border: 1px solid #e2e8f0;
+}
 /* モックの白ボタン列（検索以外） */
 QPushButton#secondaryButton {
     background-color: #ffffff;
@@ -168,6 +172,39 @@ QComboBox:hover, QDateEdit:hover, QLineEdit:hover, QSpinBox:hover {
 QComboBox:focus, QDateEdit:focus, QLineEdit:focus, QSpinBox:focus {
     border: 1px solid #2563eb;
     outline: none;
+}
+QSpinBox#forecastYearSpin {
+    padding-right: 26px;
+    padding-left: 10px;
+    min-width: 88px;
+}
+QSpinBox#forecastYearSpin::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 18px;
+    border: none;
+    border-left: 1px solid #e2e8f0;
+    border-top-right-radius: 10px;
+    background-color: #f8fafc;
+}
+QSpinBox#forecastYearSpin::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    border: none;
+    border-left: 1px solid #e2e8f0;
+    border-top: 1px solid #e2e8f0;
+    border-bottom-right-radius: 10px;
+    background-color: #f8fafc;
+}
+QSpinBox#forecastYearSpin::up-button:hover, QSpinBox#forecastYearSpin::down-button:hover {
+    background-color: #f1f5f9;
+}
+QSpinBox#forecastYearSpin::up-button:pressed, QSpinBox#forecastYearSpin::down-button:pressed {
+    background-color: #e2e8f0;
+}
+QSpinBox#forecastYearSpin::up-arrow, QSpinBox#forecastYearSpin::down-arrow {
+    image: none;
 }
 /* プルダウン（コンボのポップアップ＝Web の select メニュー風） */
 QComboBox QAbstractItemView {
@@ -431,32 +468,53 @@ QDialogButtonBox QPushButton {
     padding: 8px 20px;
 }
 /* --- Web アプリ風：確認・エラーダイアログ --- */
-QMessageBox {
+QDialog#messageDialog {
+    background-color: transparent;
+}
+QFrame#messageCard {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 16px;
 }
-QMessageBox QLabel {
+QLabel#messageBadge {
+    font-size: 24px;
+    font-weight: 700;
+    color: #ffffff;
+    border-radius: 21px;
+    background-color: #2563eb;
+}
+QLabel#messageBadge[level="warning"] {
+    background-color: #d97706;
+}
+QLabel#messageBadge[level="error"] {
+    background-color: #dc2626;
+}
+QLabel#messageTitle {
+    color: #0f172a;
+    font-size: 18px;
+    font-weight: 700;
+}
+QLabel#messageBody {
     color: #334155;
     font-size: 14px;
     line-height: 1.5;
-    min-width: 280px;
-    max-width: 480px;
+    min-width: 180px;
+    max-width: 360px;
 }
-QMessageBox QPushButton {
+QPushButton#messagePrimaryButton {
     background-color: #2563eb;
     color: #ffffff;
     border: none;
     border-radius: 10px;
-    padding: 9px 22px;
+    padding: 10px 24px;
     font-weight: 600;
     min-width: 96px;
     min-height: 20px;
 }
-QMessageBox QPushButton:hover {
+QPushButton#messagePrimaryButton:hover {
     background-color: #1d4ed8;
 }
-QMessageBox QPushButton:pressed {
+QPushButton#messagePrimaryButton:pressed {
     background-color: #1e40af;
 }
 QDialog {
@@ -480,9 +538,9 @@ QPushButton#webDatePickerLinkButton {
     background-color: transparent;
     border: none;
     color: #2563eb;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
-    padding: 10px 8px;
+    padding: 6px 6px;
 }
 QPushButton#webDatePickerLinkButton:hover {
     color: #1d4ed8;
@@ -496,17 +554,17 @@ QFrame#webDatePickerHeaderBar {
     border: none;
 }
 QLabel#webDatePickerEraLabel {
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 700;
     color: #0f172a;
-    padding: 0 2px;
+    padding: 0 1px;
 }
 QSpinBox#webDatePickerHeaderYearSpin {
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 700;
     color: #0f172a;
-    padding: 4px 6px;
-    min-height: 30px;
+    padding: 3px 5px;
+    min-height: 26px;
     border-radius: 8px;
     border: 1px solid #e2e8f0;
     background-color: #ffffff;
@@ -515,10 +573,10 @@ QSpinBox#webDatePickerHeaderYearSpin:focus {
     border: 1px solid #2563eb;
 }
 QToolButton#webDatePickerMonthButton {
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 700;
     color: #0f172a;
-    padding: 4px 8px;
+    padding: 3px 6px;
     border: none;
     background-color: transparent;
 }
@@ -527,11 +585,11 @@ QToolButton#webDatePickerMonthButton:hover {
     border-radius: 8px;
 }
 QToolButton#webDatePickerMonthStepButton {
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 700;
     color: #334155;
-    min-width: 28px;
-    min-height: 22px;
+    min-width: 22px;
+    min-height: 18px;
     padding: 0px;
     border: none;
     background-color: transparent;
@@ -544,20 +602,20 @@ QToolButton#webDatePickerMonthStepButton:hover {
 QFrame#webDatePickerCalCard {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 14px;
-    margin: 2px 4px 6px 4px;
+    border-radius: 12px;
+    margin: 0px 2px 4px 2px;
 }
 QCalendarWidget#webDatePickerCalendar {
     background-color: transparent;
     border: none;
 }
 QCalendarWidget#webDatePickerCalendar QAbstractItemView:enabled {
-    font-size: 14px;
+    font-size: 13px;
     color: #334155;
     selection-background-color: #2563eb;
     selection-color: #ffffff;
     outline: none;
-    min-height: 220px;
+    min-height: 196px;
     alternate-background-color: #f8fafc;
 }
 QCalendarWidget#webDatePickerCalendar QAbstractItemView:enabled:!active {
@@ -583,10 +641,10 @@ QMenu {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
-    padding: 6px;
+    padding: 4px;
 }
 QMenu::item {
-    padding: 10px 28px 10px 16px;
+    padding: 8px 24px 8px 14px;
     border-radius: 8px;
     color: #334155;
 }

@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PySide6.QtGui import QBrush, QColor, QFont
 
 import pandas as pd
 
@@ -58,9 +59,18 @@ class DataFrameTableModel(QAbstractTableModel):
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole) -> Any:
         if not index.isValid():
             return None
+        row_kind = None
+        if "種別" in self._df.columns:
+            kind_col = self._df.columns.get_loc("種別")
+            row_kind = self._df.iat[index.row(), kind_col]
         if role in (Qt.DisplayRole, Qt.EditRole):
             val = self._df.iat[index.row(), index.column()]
             col = self._df.columns[index.column()]
+            if col == "種別":
+                if val == "実績":
+                    return "実績"
+                if val == "予測":
+                    return "予測"
             if col in ("納品数", "金額"):
                 return _format_with_commas(val)
             if pd.isna(val):
@@ -72,6 +82,24 @@ class DataFrameTableModel(QAbstractTableModel):
             col = self._df.columns[index.column()]
             if col in ("納品数", "金額", "年", "月"):
                 return Qt.AlignRight | Qt.AlignVCenter
+            if col == "種別":
+                return Qt.AlignCenter | Qt.AlignVCenter
+        if role == Qt.BackgroundRole and row_kind in ("実績", "予測"):
+            if row_kind == "実績":
+                return QBrush(QColor("#f8fbff"))
+            return QBrush(QColor("#fff8f1"))
+        if role == Qt.ForegroundRole:
+            col = self._df.columns[index.column()]
+            if col == "種別" and row_kind == "実績":
+                return QBrush(QColor("#1d4ed8"))
+            if col == "種別" and row_kind == "予測":
+                return QBrush(QColor("#c2410c"))
+        if role == Qt.FontRole:
+            col = self._df.columns[index.column()]
+            if col == "種別":
+                font = QFont()
+                font.setBold(True)
+                return font
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):  # noqa: N802

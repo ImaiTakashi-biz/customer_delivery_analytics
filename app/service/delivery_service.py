@@ -62,6 +62,35 @@ def fetch_customer_names(conn) -> List[str]:
     return [str(r["顧客"]).strip() for r in rows if r.get("顧客") is not None]
 
 
+def fetch_customer_code_name_pairs(conn) -> list[tuple[str, str]]:
+    """客先マスタから顧客コードと客先名の一覧を取得する。"""
+    sql = """
+    SELECT
+        Trim(k.[コード]) AS 顧客コード,
+        Trim(k.[客先]) AS 顧客名
+    FROM [t_客先マスタ] AS k
+    WHERE k.[コード] IS NOT NULL
+      AND k.[客先] IS NOT NULL
+      AND Len(Trim(k.[コード])) > 0
+      AND Len(Trim(k.[客先])) > 0
+    ORDER BY Trim(k.[コード]), Trim(k.[客先])
+    """
+    rows = access_connector.fetch_all_dicts(conn, sql)
+    out: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        code = str(row.get("顧客コード") or "").strip()
+        name = str(row.get("顧客名") or "").strip()
+        if not code or not name:
+            continue
+        key = (code, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
 def fetch_distinct_hinban(conn) -> List[str]:
     """納品テーブルに現れる品番の一覧（候補プルダウン用・重複除去）。"""
     sql = """

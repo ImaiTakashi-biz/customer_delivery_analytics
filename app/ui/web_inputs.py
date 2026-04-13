@@ -224,12 +224,47 @@ class FilterableComboBox(QComboBox):
                 return
             w = w.parentWidget()
 
+    def _forward_popup_key_to_line_edit(self, event: QKeyEvent) -> bool:
+        """一覧表示中でも入力欄へ文字入力できるようにする。"""
+        key = event.key()
+        mods = event.modifiers()
+        editing_keys = {
+            Qt.Key.Key_Backspace,
+            Qt.Key.Key_Delete,
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_Home,
+            Qt.Key.Key_End,
+        }
+        shortcut_keys = {Qt.Key.Key_A, Qt.Key.Key_C, Qt.Key.Key_V, Qt.Key.Key_X}
+        is_shortcut = (
+            mods == Qt.KeyboardModifier.ControlModifier and key in shortcut_keys
+        )
+        is_text_input = bool(event.text()) and not (
+            mods
+            & (
+                Qt.KeyboardModifier.ControlModifier
+                | Qt.KeyboardModifier.AltModifier
+            )
+        )
+        if not (key in editing_keys or is_shortcut or is_text_input):
+            return False
+
+        le = self.lineEdit()
+        QApplication.sendEvent(le, event)
+        self._clear_popup_row_highlight()
+        QTimer.singleShot(0, self._reassert_line_edit_if_popup_visible)
+        return True
+
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         v = self.view()
         if v is not None and (obj is v or obj is v.viewport()):
             if event.type() == QEvent.Type.FocusIn:
                 QTimer.singleShot(0, self._after_popup_open)
                 return True
+            if isinstance(event, QKeyEvent) and event.type() == QEvent.Type.KeyPress:
+                if self._forward_popup_key_to_line_edit(event):
+                    return True
             return False
 
         if obj != self.lineEdit():

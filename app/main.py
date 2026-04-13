@@ -30,6 +30,7 @@ import matplotlib.dates  # noqa: F401
 from PySide6.QtWidgets import QApplication
 
 from app.config import settings
+from app.ui.message_dialog import show_critical
 from app.ui.main_window import MainWindow
 from app.ui.theme import apply_app_theme, configure_matplotlib_light
 
@@ -46,13 +47,7 @@ def _report_fatal_startup_error(exc: BaseException, q_app: QApplication | None) 
     text = text[:3500]
     try:
         if q_app is not None:
-            from PySide6.QtWidgets import QMessageBox
-
-            QMessageBox.critical(
-                None,
-                "起動エラー",
-                text,
-            )
+            show_critical(None, "起動エラー", text)
         elif sys.platform == "win32":
             import ctypes
 

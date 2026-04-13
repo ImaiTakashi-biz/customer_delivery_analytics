@@ -91,7 +91,7 @@ class WebDatePickerDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("webDatePickerDialog")
         self.setWindowTitle(window_title)
-        self.setMinimumSize(440, 520)
+        self.setMinimumSize(380, 450)
         self._min_d = min_d
         self._max_d = max_d
 
@@ -103,7 +103,7 @@ class WebDatePickerDialog(QDialog):
         self._cal.setVerticalHeaderFormat(
             QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader
         )
-        self._cal.setMinimumSize(400, 360)
+        self._cal.setMinimumSize(336, 296)
 
         fmt_sun = QTextCharFormat()
         fmt_sun.setForeground(QColor("#dc2626"))
@@ -132,7 +132,7 @@ class WebDatePickerDialog(QDialog):
         self._year_spin.setObjectName("webDatePickerHeaderYearSpin")
         self._year_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self._year_spin.setRange(min_d.year(), max_d.year())
-        self._year_spin.setFixedWidth(56)
+        self._year_spin.setFixedWidth(52)
         self._year_spin.valueChanged.connect(self._on_header_year_month_changed)
 
         self._era_lbl = QLabel(self._header)
@@ -208,8 +208,8 @@ class WebDatePickerDialog(QDialog):
                 btn.setObjectName("secondaryButton")
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 18)
-        root.setSpacing(8)
+        root.setContentsMargins(14, 12, 14, 14)
+        root.setSpacing(6)
         root.addWidget(self._header)
         root.addWidget(self._cal_card, stretch=1)
         root.addLayout(row_links)

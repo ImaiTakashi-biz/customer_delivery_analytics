@@ -6,7 +6,8 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 # pandas は dateutil 経由で import フックと干渉しうるため、Qt を先に読み込む
-from PySide6.QtCore import QDate, Qt, QTimer
+from PySide6.QtCore import QDate, QPoint, Qt, QTimer
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -17,9 +18,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMessageBox,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyleOptionSpinBox,
     QSpinBox,
     QSplitter,
     QTableView,
@@ -34,6 +36,7 @@ from app.config import settings
 from app.db import access_connector
 from app.service import delivery_service, export_service
 from app.ui.busy_overlay import BusyOverlay
+from app.ui.message_dialog import show_critical, show_information, show_warning
 from app.ui.search_worker import DeliverySearchWorker, YearlyForecastFromRawWorker
 from app.ui.table_model import DataFrameTableModel
 from app.ui.web_inputs import ClickableDateEdit, ClickToOpenComboBox, FilterableComboBox
@@ -46,6 +49,92 @@ def _form_side_label(text: str) -> QLabel:
     lb = QLabel(text)
     lb.setStyleSheet("color: #64748b; font-weight: 500; font-size: 12px;")
     return lb
+
+
+def _make_excel_button_icon() -> QIcon:
+    """Excel 出力ボタン用の簡易アイコン。"""
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#16a34a"))
+    painter.drawRoundedRect(1, 1, 14, 14, 4, 4)
+
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawRoundedRect(4, 3, 8, 10, 1.5, 1.5)
+
+    painter.setPen(QPen(QColor("#16a34a"), 1.0))
+    painter.drawLine(6, 7, 10, 7)
+    painter.drawLine(6, 9, 10, 9)
+
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_chart_button_icon() -> QIcon:
+    """グラフ表示ボタン用の簡易アイコン。"""
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#2563eb"))
+    painter.drawRoundedRect(1, 1, 14, 14, 4, 4)
+
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawRect(4, 8, 2, 3)
+    painter.drawRect(7, 6, 2, 5)
+    painter.drawRect(10, 4, 2, 7)
+    painter.end()
+    return QIcon(pixmap)
+
+
+class ForecastYearSpinBox(QSpinBox):
+    """予測年数専用。上下矢印を自前で描画して環境差を抑える。"""
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+
+        opt = QStyleOptionSpinBox()
+        self.initStyleOption(opt)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(
+            QColor("#64748b") if self.isEnabled() else QColor("#cbd5e1")
+        )
+
+        for subcontrol, is_up in (
+            (QStyle.SubControl.SC_SpinBoxUp, True),
+            (QStyle.SubControl.SC_SpinBoxDown, False),
+        ):
+            rect = self.style().subControlRect(
+                QStyle.ComplexControl.CC_SpinBox, opt, subcontrol, self
+            )
+            if not rect.isValid() or rect.width() <= 0 or rect.height() <= 0:
+                continue
+
+            cx = rect.center().x()
+            cy = rect.center().y()
+            if is_up:
+                points = [
+                    QPoint(cx - 4, cy + 2),
+                    QPoint(cx + 4, cy + 2),
+                    QPoint(cx, cy - 3),
+                ]
+            else:
+                points = [
+                    QPoint(cx - 4, cy - 2),
+                    QPoint(cx + 4, cy - 2),
+                    QPoint(cx, cy + 3),
+                ]
+            painter.drawPolygon(QPolygon(points))
+
+        painter.end()
 
 
 class ChartYearlyDialog(QDialog):
@@ -111,7 +200,13 @@ class ChartYearlyDialog(QDialog):
                     )
                 ax.set_ylabel(ylabel)
                 ax.grid(True, alpha=0.3)
-                ax.legend(loc="upper left", fontsize=8)
+                ax.legend(
+                    loc="upper left",
+                    bbox_to_anchor=(1.01, 1.0),
+                    borderaxespad=0.0,
+                    frameon=False,
+                    fontsize=8,
+                )
                 ax.ticklabel_format(style="plain", axis="y", useOffset=False)
                 ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
                 if all_years:
@@ -125,7 +220,7 @@ class ChartYearlyDialog(QDialog):
             fig.suptitle(f"{title}\n{subtitle}", fontsize=10, color="#1f2937")
         else:
             fig.suptitle(title, fontsize=11, color="#1f2937")
-        fig.tight_layout(rect=(0, 0, 1, 0.92))
+        fig.tight_layout(rect=(0, 0, 0.89, 0.92))
 
         layout = QVBoxLayout(self)
         layout.addWidget(canvas, stretch=1)
@@ -152,6 +247,13 @@ class MainWindow(QMainWindow):
         self._all_hinbans: list[str] = []
         self._last_hinban_filter_customer: Optional[str] = None
         self._hinban_lists_ready: bool = False
+        self._customer_display_to_name: dict[str, str] = {}
+        self._customer_code_to_name: dict[str, str] = {}
+        self._customer_name_to_display: dict[str, str] = {}
+        self._customer_placeholder = "顧客コード・客先名（一覧／入力）"
+        self._product_placeholder = "品番（任意・顧客で候補絞込）"
+        self._product_disabled_placeholder = "顧客別では品番を使いません"
+        self._customer_disabled_placeholder = "品番別では顧客を使いません"
 
         central = QWidget()
         central.setObjectName("dashboardCentral")
@@ -177,41 +279,37 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(12, 10, 12, 10)
         root.setSpacing(6)
 
-        # --- 検索条件（既定は期間なし＝DB 上の全日付）---
-        self._period_filter = QCheckBox("期間で絞る")
-        self._period_filter.setChecked(False)
-        self._period_filter.setToolTip(
-            "オンにすると開始日・終了日で納入日を絞り込みます。"
-            "オフのときは Access 内の納入日をすべて対象にします。"
-        )
-        # 期間オフ時は日付を「未指定」表示（QDateEdit の特別値＝最小日と同じときの文言）
+        # --- 検索条件：開始日・終了日は常に使用 ---
         self._date_sentinel = QDate(1900, 1, 1)
         self._date_from = ClickableDateEdit()
         self._date_to = ClickableDateEdit()
+        d0, d1 = date_utils.default_date_range()
         for de in (self._date_from, self._date_to):
             de.setMinimumDate(self._date_sentinel)
             de.setSpecialValueText("年 / 月 / 日")
             de.setDate(self._date_sentinel)
-        self._date_from.setEnabled(False)
-        self._date_to.setEnabled(False)
-        self._period_filter.toggled.connect(self._on_period_filter_toggled)
-        self._refresh_main_date_tooltips()
+            de.setEnabled(True)
+            de.setToolTip("クリックでカレンダーを開きます。キーボードでも日付を入力できます。")
+        self._date_from.setDate(date_utils.date_to_qdate(d0))
+        self._date_to.setDate(date_utils.date_to_qdate(d1))
 
         self._customer_combo = FilterableComboBox(
             include_all_option=True, max_visible=12
         )
-        self._customer_combo.setPlaceholderText("顧客（一覧／入力）")
-        self._customer_combo.setMinimumWidth(160)
+        self._customer_combo.setPlaceholderText(self._customer_placeholder)
+        self._customer_combo.setMinimumWidth(140)
+        self._customer_combo.setMaximumWidth(600)
         self._customer_combo.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
         self._product_combo = FilterableComboBox(
             include_all_option=False, max_visible=12
         )
-        self._product_combo.setPlaceholderText("品番（任意・顧客で候補絞込）")
-        self._product_combo.setMinimumWidth(160)
+        self._product_combo.setPlaceholderText(self._product_placeholder)
+        self._product_combo.setMinimumWidth(140)
+        self._product_combo.setMaximumWidth(600)
         self._product_combo.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
         self._product_combo.setToolTip(
             "一覧から選ぶか、入力で部分一致検索できます。"
@@ -226,6 +324,10 @@ class MainWindow(QMainWindow):
         cust_le = self._customer_combo.lineEdit()
         cust_le.editingFinished.connect(self._on_customer_changed_for_hinban_list)
         self._customer_combo.activated.connect(self._on_customer_changed_for_hinban_list)
+        cust_le.textChanged.connect(self._refresh_search_button_state)
+        self._product_combo.lineEdit().textChanged.connect(
+            self._refresh_search_button_state
+        )
 
         self._agg_combo = ClickToOpenComboBox(max_visible=8)
         # str 列挙体を userData に渡すと Qt が文字列化し currentData() が Enum にならないため、名前で保持する
@@ -236,19 +338,23 @@ class MainWindow(QMainWindow):
         self._agg_combo.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
+        self._agg_combo.currentIndexChanged.connect(
+            self._on_aggregate_mode_changed
+        )
 
         self._date_from.setMaximumWidth(138)
         self._date_to.setMaximumWidth(138)
+        self._date_from.dateChanged.connect(self._refresh_search_button_state)
+        self._date_to.dateChanged.connect(self._refresh_search_button_state)
 
         cond_caption = QLabel("検索条件")
         cond_caption.setObjectName("formSectionCaption")
 
-        # 1行目：見出し・期間チェック・開始／終了日
+        # 1行目：見出し・開始／終了日
         row_period = QHBoxLayout()
         row_period.setSpacing(8)
         row_period.setContentsMargins(0, 0, 0, 0)
         row_period.addWidget(cond_caption, 0, Qt.AlignmentFlag.AlignVCenter)
-        row_period.addWidget(self._period_filter, 0, Qt.AlignmentFlag.AlignVCenter)
         row_period.addSpacing(6)
         row_period.addWidget(_form_side_label("開始"), 0, Qt.AlignmentFlag.AlignVCenter)
         row_period.addWidget(self._date_from, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -275,14 +381,14 @@ class MainWindow(QMainWindow):
         row_fields = QHBoxLayout()
         row_fields.setSpacing(6)
         row_fields.setContentsMargins(0, 0, 0, 0)
+        row_fields.addWidget(lb_agg, 0, Qt.AlignmentFlag.AlignVCenter)
+        row_fields.addWidget(self._agg_combo, 0)
+        row_fields.addSpacing(12)
         row_fields.addWidget(lb_cust, 0, Qt.AlignmentFlag.AlignVCenter)
         row_fields.addWidget(self._customer_combo, 1)
         row_fields.addSpacing(10)
         row_fields.addWidget(lb_prod, 0, Qt.AlignmentFlag.AlignVCenter)
         row_fields.addWidget(self._product_combo, 1)
-        row_fields.addSpacing(10)
-        row_fields.addWidget(lb_agg, 0, Qt.AlignmentFlag.AlignVCenter)
-        row_fields.addWidget(self._agg_combo, 0)
 
         fl = QVBoxLayout()
         fl.setSpacing(6)
@@ -293,25 +399,28 @@ class MainWindow(QMainWindow):
         # --- ボタン ---
         btn_search = QPushButton("検索")
         self._btn_search = btn_search
+        self._btn_search.setObjectName("searchPrimaryButton")
         btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_search.setEnabled(False)
         btn_search.clicked.connect(self._on_search)
+        excel_icon = _make_excel_button_icon()
+        chart_icon = _make_chart_button_icon()
         btn_excel = QPushButton("一覧を Excel 出力")
         btn_excel.setObjectName("secondaryButton")
+        btn_excel.setIcon(excel_icon)
         btn_excel.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_excel.clicked.connect(self._on_export_list)
         btn_chart = QPushButton("年別推移グラフ")
         btn_chart.setObjectName("secondaryButton")
+        btn_chart.setIcon(chart_icon)
         btn_chart.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_chart.clicked.connect(self._on_chart_list)
 
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(6)
-        toolbar.setContentsMargins(0, 2, 0, 0)
-        toolbar.addWidget(btn_search)
-        toolbar.addStretch(1)
+        row_fields.addSpacing(6)
+        row_fields.addWidget(btn_search, 0, Qt.AlignmentFlag.AlignVCenter)
+        row_fields.addStretch(1)
 
         root.addLayout(fl)
-        root.addLayout(toolbar)
 
         search_wrap_lay.addWidget(search_card, 1)
 
@@ -333,23 +442,28 @@ class MainWindow(QMainWindow):
         fy_lbl = QLabel("予測年数")
         fy_lbl.setObjectName("formFieldLabel")
         fc_row.addWidget(fy_lbl)
-        self._spin_forecast_years = QSpinBox()
+        self._spin_forecast_years = ForecastYearSpinBox()
+        self._spin_forecast_years.setObjectName("forecastYearSpin")
         self._spin_forecast_years.setRange(1, 5)
         self._spin_forecast_years.setValue(3)
-        self._spin_forecast_years.setMaximumWidth(72)
+        self._spin_forecast_years.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._spin_forecast_years.setFixedWidth(88)
         self._spin_forecast_years.setToolTip("先の年を何年分、線形トレンドで外挿するか（1〜5年）。")
         fc_row.addWidget(self._spin_forecast_years)
         self._btn_forecast_run = QPushButton("予測を実行")
-        self._btn_forecast_run.setObjectName("secondaryButton")
+        self._btn_forecast_run.setObjectName("forecastRunButton")
         self._btn_forecast_run.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_forecast_run.setEnabled(False)
         self._btn_forecast_run.clicked.connect(self._on_forecast_run)
         self._btn_forecast_chart = QPushButton("予測グラフ")
         self._btn_forecast_chart.setObjectName("secondaryButton")
+        self._btn_forecast_chart.setIcon(chart_icon)
         self._btn_forecast_chart.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_forecast_chart.setEnabled(False)
         self._btn_forecast_chart.clicked.connect(self._on_forecast_chart)
-        self._btn_forecast_excel = QPushButton("予測を Excel")
+        self._btn_forecast_excel = QPushButton("予測を Excel 出力")
         self._btn_forecast_excel.setObjectName("secondaryButton")
+        self._btn_forecast_excel.setIcon(excel_icon)
         self._btn_forecast_excel.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_forecast_excel.setEnabled(False)
         self._btn_forecast_excel.clicked.connect(self._on_forecast_excel)
@@ -360,7 +474,7 @@ class MainWindow(QMainWindow):
 
         self._forecast_note = QTextEdit()
         self._forecast_note.setReadOnly(True)
-        self._forecast_note.setMaximumHeight(96)
+        self._forecast_note.setMaximumHeight(110)
         self._forecast_note.setPlaceholderText(
             "検索実行後、「予測を実行」で直近の検索明細を年合計にまとめ、将来年を算出します。"
         )
@@ -398,8 +512,8 @@ class MainWindow(QMainWindow):
         actual_bar = QHBoxLayout()
         actual_bar.setSpacing(8)
         actual_bar.setContentsMargins(0, 0, 0, 0)
-        actual_bar.addWidget(btn_excel)
         actual_bar.addWidget(btn_chart)
+        actual_bar.addWidget(btn_excel)
         actual_bar.addStretch(1)
         left_lay.addWidget(lt)
         left_lay.addWidget(ls)
@@ -439,6 +553,7 @@ class MainWindow(QMainWindow):
         self._busy_overlay = BusyOverlay(central)
 
         self.setMinimumSize(1100, 620)
+        self._on_aggregate_mode_changed()
         # コンストラクタ内で DB 接続すると、ウィンドウ表示前にハング／クラッシュし無言終了しうる。
         # イベントループ開始後に読み込み、画面は必ず先に出す。
         QTimer.singleShot(0, self._load_customers)
@@ -452,29 +567,134 @@ class MainWindow(QMainWindow):
             return key
         return delivery_service.AggregateMode(self._agg_combo.currentText())
 
-    def _refresh_main_date_tooltips(self) -> None:
-        """期間オフ時は日付欄が無効のため、カレンダーが開かない理由をツールチップで示す。"""
-        on = self._period_filter.isChecked()
-        en = "クリックでカレンダーを開きます。キーボードでも日付を入力できます。"
-        dis = (
-            "全期間検索では日付は使いません。"
-            "カレンダーを使うには「納入日の期間で絞り込む」にチェックしてください。"
-        )
-        self._date_from.setToolTip(en if on else dis)
-        self._date_to.setToolTip(en if on else dis)
+    @staticmethod
+    def _has_customer_value(text: str) -> bool:
+        s = (text or "").strip()
+        return s not in ("", "（すべて）")
 
-    def _on_period_filter_toggled(self, checked: bool) -> None:
-        """期間指定のオンオフに合わせて日付入力の有効化と候補日をセットする。"""
-        if checked:
-            d0, d1 = date_utils.suggested_period_when_filter_enabled()
-            self._date_from.setDate(date_utils.date_to_qdate(d0))
-            self._date_to.setDate(date_utils.date_to_qdate(d1))
+    @staticmethod
+    def _has_product_value(text: str) -> bool:
+        return bool((text or "").strip())
+
+    def _clear_combo_text(self, combo) -> None:
+        le = combo.lineEdit()
+        le.blockSignals(True)
+        le.clear()
+        le.blockSignals(False)
+        combo.setCurrentIndex(-1)
+
+    @staticmethod
+    def _format_customer_choice(code: str, name: str) -> str:
+        return f"{code}  {name}"
+
+    def _resolve_customer_name(self, raw_text: str) -> Optional[str]:
+        text = (raw_text or "").strip()
+        if text in ("", "（すべて）"):
+            return None
+        if text in self._customer_display_to_name:
+            return self._customer_display_to_name[text]
+        if text in self._customer_code_to_name:
+            return self._customer_code_to_name[text]
+        mapped = self._customer_name_to_display.get(text)
+        if mapped is not None:
+            return self._customer_display_to_name.get(mapped, text)
+        return text
+
+    def _customer_display_label(self, raw_text: str) -> str:
+        text = (raw_text or "").strip()
+        if text in ("", "（すべて）"):
+            return "全顧客"
+        if text in self._customer_display_to_name:
+            return text
+        if text in self._customer_code_to_name:
+            name = self._customer_code_to_name[text]
+            return self._customer_name_to_display.get(
+                name, self._format_customer_choice(text, name)
+            )
+        return self._customer_name_to_display.get(text, text)
+
+    def _set_product_input_enabled(self, enabled: bool, placeholder: str) -> None:
+        self._product_combo.setEnabled(enabled)
+        self._product_combo.setPlaceholderText(placeholder)
+
+    def _set_customer_input_enabled(self, enabled: bool, placeholder: str) -> None:
+        self._customer_combo.setEnabled(enabled)
+        self._customer_combo.setPlaceholderText(placeholder)
+
+    def _on_aggregate_mode_changed(self) -> None:
+        mode = self._current_aggregate_mode()
+        if mode == delivery_service.AggregateMode.BY_CUSTOMER:
+            self._set_customer_input_enabled(True, self._customer_placeholder)
+            self._set_product_input_enabled(False, self._product_disabled_placeholder)
+            self._clear_combo_text(self._product_combo)
+            self._product_combo.set_source_items(self._all_hinbans)
+            self._last_hinban_filter_customer = None
+        elif mode == delivery_service.AggregateMode.BY_PRODUCT:
+            self._set_customer_input_enabled(False, self._customer_disabled_placeholder)
+            self._set_product_input_enabled(True, self._product_placeholder)
+            self._clear_combo_text(self._customer_combo)
+            self._product_combo.set_source_items(self._all_hinbans)
+            self._last_hinban_filter_customer = None
         else:
-            self._date_from.setDate(self._date_sentinel)
-            self._date_to.setDate(self._date_sentinel)
-        self._date_from.setEnabled(checked)
-        self._date_to.setEnabled(checked)
-        self._refresh_main_date_tooltips()
+            self._set_customer_input_enabled(True, self._customer_placeholder)
+            self._set_product_input_enabled(True, self._product_placeholder)
+            if self._has_customer_value(self._customer_combo.currentText()):
+                self._on_customer_changed_for_hinban_list()
+            else:
+                self._product_combo.set_source_items(self._all_hinbans)
+                self._last_hinban_filter_customer = None
+        self._refresh_search_button_state()
+
+    def _refresh_search_button_state(self) -> None:
+        if self._search_worker is not None and self._search_worker.isRunning():
+            self._btn_search.setEnabled(False)
+            return
+
+        mode = self._current_aggregate_mode()
+        has_customer = self._has_customer_value(self._customer_combo.currentText())
+        has_product = self._has_product_value(self._product_combo.currentText())
+        has_valid_period = self._date_from.date() <= self._date_to.date()
+
+        if mode == delivery_service.AggregateMode.BY_CUSTOMER:
+            ready = has_customer
+        elif mode == delivery_service.AggregateMode.BY_PRODUCT:
+            ready = has_product
+        else:
+            ready = has_customer and has_product
+
+        self._btn_search.setEnabled(ready and has_valid_period)
+
+    @staticmethod
+    def _sanitize_filename_part(text: str) -> str:
+        trans = str.maketrans({
+            "\\": "￥",
+            "/": "／",
+            ":": "：",
+            "*": "＊",
+            "?": "？",
+            '"': "”",
+            "<": "＜",
+            ">": "＞",
+            "|": "｜",
+        })
+        return (text or "").strip().translate(trans)
+
+    def _default_excel_export_name(self, *, include_forecast: bool) -> str:
+        mode = self._current_aggregate_mode()
+        cust = self._sanitize_filename_part(
+            self._resolve_customer_name(self._customer_combo.currentText()) or "全顧客"
+        )
+        prod = self._sanitize_filename_part(self._product_combo.currentText())
+
+        if mode == delivery_service.AggregateMode.BY_CUSTOMER:
+            subject = cust or "全顧客"
+        elif mode == delivery_service.AggregateMode.BY_PRODUCT:
+            subject = prod or "全品番"
+        else:
+            subject = "_".join(part for part in (cust, prod) if part) or "検索結果"
+
+        suffix = "納品実績・予測データ" if include_forecast else "納品実績データ"
+        return f"{subject}{suffix}.xlsx"
 
     def run_with_connection(self, fn: Callable[[Any], Any]) -> Any:
         """DB 接続を開き fn(conn) を実行する。"""
@@ -488,46 +708,63 @@ class MainWindow(QMainWindow):
         try:
 
             def load(conn):
-                names = delivery_service.fetch_customer_names(conn)
+                customer_pairs = delivery_service.fetch_customer_code_name_pairs(conn)
                 hinbans = delivery_service.fetch_distinct_hinban(conn)
-                return names, hinbans
+                return customer_pairs, hinbans
 
-            names, hinbans = self.run_with_connection(load)
+            customer_pairs, hinbans = self.run_with_connection(load)
         except access_connector.OdbcDriverNotFoundError as e:
-            QMessageBox.critical(self, "接続エラー", str(e))
+            show_critical(self, "接続エラー", str(e))
             return
         except access_connector.AccessFileUnavailableError as e:
-            QMessageBox.critical(self, "接続エラー", str(e))
+            show_critical(self, "接続エラー", str(e))
             return
         except access_connector.AccessConnectionError as e:
-            QMessageBox.critical(self, "接続エラー", str(e))
+            show_critical(self, "接続エラー", str(e))
             return
         except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "接続エラー", f"顧客一覧の取得に失敗しました。\n{e}")
+            show_critical(self, "接続エラー", f"顧客一覧の取得に失敗しました。\n{e}")
             return
         finally:
             self._busy_overlay.hide_overlay()
 
+        customer_items: list[str] = []
+        self._customer_display_to_name = {}
+        self._customer_code_to_name = {}
+        self._customer_name_to_display = {}
+        for code, name in customer_pairs:
+            item = self._format_customer_choice(code, name)
+            customer_items.append(item)
+            self._customer_display_to_name[item] = name
+            self._customer_code_to_name[code] = name
+            self._customer_name_to_display[name] = item
         self._all_hinbans = list(hinbans)
         self._hinban_lists_ready = True
         self._last_hinban_filter_customer = None
-        self._customer_combo.set_source_items(names)
+        self._customer_combo.set_source_items(customer_items)
         self._product_combo.set_source_items(hinbans)
+        self._on_aggregate_mode_changed()
         self._status.setText(
-            f"顧客件数: {len(names)} 件 / 品番候補: {len(hinbans)} 件を読み込みました。\n"
+            f"顧客件数: {len(customer_items)} 件 / 品番候補: {len(hinbans)} 件を読み込みました。\n"
             f"Access: {settings.resolve_access_db_path()}"
         )
 
     def _on_customer_changed_for_hinban_list(self) -> None:
         """顧客が確定したタイミングで品番候補をその顧客向けに絞り込む（DB と同じ結合条件）。"""
         if not self._hinban_lists_ready:
+            self._refresh_search_button_state()
             return
-        cust = self._customer_combo.currentText().strip()
-        if cust in ("", "（すべて）"):
+        if self._current_aggregate_mode() != delivery_service.AggregateMode.BY_CUSTOMER_PRODUCT:
+            self._refresh_search_button_state()
+            return
+        cust = self._resolve_customer_name(self._customer_combo.currentText())
+        if not cust:
             self._last_hinban_filter_customer = None
             self._product_combo.set_source_items(self._all_hinbans)
+            self._refresh_search_button_state()
             return
         if cust == self._last_hinban_filter_customer:
+            self._refresh_search_button_state()
             return
         self._busy_overlay.show_message(
             "品番候補を読み込み中…\n"
@@ -541,7 +778,7 @@ class MainWindow(QMainWindow):
 
             items = self.run_with_connection(load)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "品番一覧",
                 f"顧客に応じた品番の取得に失敗しました。\n{e}",
@@ -552,39 +789,35 @@ class MainWindow(QMainWindow):
 
         self._last_hinban_filter_customer = cust
         self._product_combo.set_source_items(items)
+        self._refresh_search_button_state()
 
     def _on_search(self) -> None:
         if self._search_worker is not None and self._search_worker.isRunning():
             return
 
-        if self._period_filter.isChecked():
-            if (
-                self._date_from.date() == self._date_sentinel
-                or self._date_to.date() == self._date_sentinel
-            ):
-                QMessageBox.warning(self, "検索", "開始日と終了日を指定してください。")
-                return
-            df_from = date_utils.qdate_to_date(self._date_from.date())
-            df_to = date_utils.qdate_to_date(self._date_to.date())
-            if df_from > df_to:
-                QMessageBox.warning(self, "検索", "開始日が終了日より後になっています。")
-                return
-        else:
-            df_from, df_to = None, None
+        df_from = date_utils.qdate_to_date(self._date_from.date())
+        df_to = date_utils.qdate_to_date(self._date_to.date())
+        if df_from > df_to:
+            show_warning(self, "検索", "開始日が終了日より後になっています。")
+            return
 
         customer = self._customer_combo.currentText().strip()
-        if customer in ("", "（すべて）"):
-            customer = None
+        customer = self._resolve_customer_name(customer)
         product = self._product_combo.currentText().strip() or None
         mode = self._current_aggregate_mode()
+        if mode == delivery_service.AggregateMode.BY_CUSTOMER:
+            product = None
+        elif mode == delivery_service.AggregateMode.BY_PRODUCT:
+            customer = None
 
         self._pending_search_period_note = (
             f"{df_from} ～ {df_to}"
-            if df_from is not None and df_to is not None
-            else "全期間（DB 内の全日付）"
         )
 
         self._btn_search.setEnabled(False)
+        self._btn_forecast_run.setEnabled(False)
+        self._btn_forecast_chart.setEnabled(False)
+        self._btn_forecast_excel.setEnabled(False)
         self._busy_overlay.show_message(
             "検索中…\n"
             "ネットワーク上の Access からデータを取得しています。"
@@ -619,6 +852,7 @@ class MainWindow(QMainWindow):
         self._last_forecast_note = ""
         self._forecast_model.set_dataframe(pd.DataFrame())
         self._forecast_note.clear()
+        self._btn_forecast_run.setEnabled(raw is not None and not raw.empty)
         self._btn_forecast_chart.setEnabled(False)
         self._btn_forecast_excel.setEnabled(False)
 
@@ -632,23 +866,27 @@ class MainWindow(QMainWindow):
         )
 
     def _on_search_worker_failed(self, message: str) -> None:
-        QMessageBox.critical(self, "検索エラー", f"検索中にエラーが発生しました。\n{message}")
+        self._btn_forecast_run.setEnabled(False)
+        self._btn_forecast_chart.setEnabled(False)
+        self._btn_forecast_excel.setEnabled(False)
+        show_critical(self, "検索エラー", f"検索中にエラーが発生しました。\n{message}")
         self._status.setText(
             f"検索に失敗しました。\nAccess: {settings.resolve_access_db_path()}"
         )
 
     def _on_search_worker_thread_finished(self) -> None:
         self._busy_overlay.hide_overlay()
-        self._btn_search.setEnabled(True)
         self._search_worker = None
+        self._refresh_search_button_state()
 
     def _on_export_list(self) -> None:
         df = self._model.dataframe()
         if df.empty:
-            QMessageBox.information(self, "Excel", "出力する一覧がありません。先に検索してください。")
+            show_information(self, "Excel", "出力する一覧がありません。先に検索してください。")
             return
+        default_name = self._default_excel_export_name(include_forecast=False)
         path, _ = QFileDialog.getSaveFileName(
-            self, "Excel 保存", "", "Excel (*.xlsx)"
+            self, "Excel 保存", default_name, "Excel (*.xlsx)"
         )
         if not path:
             return
@@ -657,22 +895,31 @@ class MainWindow(QMainWindow):
         self._busy_overlay.show_message("Excel ファイルを書き出し中…")
         QApplication.processEvents()
         try:
+            yearly = delivery_service.yearly_totals_from_raw_deliveries(self._last_raw_df)
+            cust_lbl = self._customer_display_label(self._customer_combo.currentText())
+            prod_lbl = self._product_combo.currentText().strip() or "全品番"
+            period_lbl = self._pending_search_period_note or "—"
             export_service.export_dataframe(
                 path,
                 df,
                 sheet_name="一覧",
                 table_name="顧客別納入分析システム / 実績一覧",
+                yearly_chart_df=yearly,
+                chart_title="年別推移（検索結果）",
+                chart_subtitle=f"顧客: {cust_lbl} / 品番: {prod_lbl} / 対象期間: {period_lbl}",
             )
-            QMessageBox.information(self, "Excel", "保存しました。")
+            self._busy_overlay.hide_overlay()
+            show_information(self, "Excel", "保存しました。")
         except export_service.ExportError as e:
-            QMessageBox.warning(self, "Excel", str(e))
+            self._busy_overlay.hide_overlay()
+            show_warning(self, "Excel", str(e))
         finally:
             self._busy_overlay.hide_overlay()
 
     def _on_chart_list(self) -> None:
         raw = self._last_raw_df
         if raw is None or raw.empty:
-            QMessageBox.information(self, "グラフ", "先に検索を実行してください。")
+            show_information(self, "グラフ", "先に検索を実行してください。")
             return
         self._busy_overlay.show_message("グラフを準備中…")
         QApplication.processEvents()
@@ -680,11 +927,7 @@ class MainWindow(QMainWindow):
             y = delivery_service.yearly_totals_from_raw_deliveries(raw)
             y = y.copy()
             y["種別"] = "実績"
-            cust = self._customer_combo.currentText().strip()
-            if cust in ("", "（すべて）"):
-                cust_lbl = "全顧客"
-            else:
-                cust_lbl = cust
+            cust_lbl = self._customer_display_label(self._customer_combo.currentText())
             prod_lbl = self._product_combo.currentText().strip() or "全品番"
             period_lbl = self._pending_search_period_note or "—"
             sub = f"顧客: {cust_lbl}  /  品番: {prod_lbl}  /  対象期間: {period_lbl}"
@@ -697,19 +940,19 @@ class MainWindow(QMainWindow):
 
     def _on_forecast_run(self) -> None:
         if self._forecast_worker is not None and self._forecast_worker.isRunning():
-            QMessageBox.information(
+            show_information(
                 self, "予測", "予測計算の実行中です。完了を待ってから再度お試しください。"
             )
             return
         raw = self._last_raw_df
         if raw is None or raw.empty:
-            QMessageBox.information(
+            show_information(
                 self, "予測", "先に検索を実行し、明細データを取得してください。"
             )
             return
         yearly = delivery_service.yearly_totals_from_raw_deliveries(raw)
         if yearly.empty:
-            QMessageBox.warning(
+            show_warning(
                 self,
                 "予測",
                 "年次集計できる明細がありません（納入日・納品数・金額が揃っているか確認してください）。",
@@ -741,24 +984,33 @@ class MainWindow(QMainWindow):
     ) -> None:
         if run_gen != self._search_generation:
             return
+        combined = combined.copy()
+        for c in ("納品数", "金額"):
+            if c in combined.columns:
+                combined[c] = pd.to_numeric(
+                    combined[c], errors="coerce"
+                ).round(0)
         self._last_forecast_combined = combined
         self._last_forecast_note = note
-        view = combined.copy()
-        for c in ("納品数", "金額"):
-            if c in view.columns:
-                view[c] = view[c].map(
-                    lambda x: round(float(x), 2) if pd.notna(x) else x
-                )
-        self._forecast_model.set_dataframe(view)
+        self._forecast_model.set_dataframe(combined.copy())
         rebalance_table_columns(self._forecast_table)
-        cust = self._customer_combo.currentText().strip()
-        cust_lbl = "全顧客" if cust in ("", "（すべて）") else cust
+        cust_lbl = self._customer_display_label(self._customer_combo.currentText())
         prod_lbl = self._product_combo.currentText().strip() or "全品番"
         period_lbl = self._pending_search_period_note or "—"
+        actual = combined[combined["種別"] == "実績"].copy()
+        year_count = len(actual.index)
+        if year_count > 0:
+            start_year = int(actual["年"].min())
+            end_year = int(actual["年"].max())
+            year_range_text = f"{start_year}〜{end_year}年の実績 {year_count} 年分"
+        else:
+            year_range_text = "実績年データ"
         self._forecast_note.setPlainText(
-            f"{note}\n\n"
-            f"入力データ: 直近の検索で取得した明細を西暦年ごとに合計した系列です。\n"
-            f"検索条件の目安: 顧客={cust_lbl} / 品番={prod_lbl} / 期間={period_lbl}"
+            f"{note}\n"
+            f"・元データ: 検索結果を年ごとに合計した {year_range_text}\n"
+            f"・考え方: 直近1年ではなく、対象期間全体の増減傾向で見積もります。\n"
+            f"・補足: 実績が1年分だけならその値を使い、0未満は0に補正します。\n"
+            f"・検索条件: 顧客={cust_lbl} / 品番={prod_lbl} / 期間={period_lbl}"
         )
         self._btn_forecast_chart.setEnabled(True)
         self._btn_forecast_excel.setEnabled(True)
@@ -766,7 +1018,7 @@ class MainWindow(QMainWindow):
     def _on_forecast_worker_failed(self, message: str, run_gen: int) -> None:
         if run_gen != self._search_generation:
             return
-        QMessageBox.warning(self, "予測", f"予測の計算に失敗しました。\n{message}")
+        show_warning(self, "予測", f"予測の計算に失敗しました。\n{message}")
 
     def _on_forecast_worker_thread_finished(self) -> None:
         self._busy_overlay.hide_overlay()
@@ -776,13 +1028,12 @@ class MainWindow(QMainWindow):
     def _on_forecast_chart(self) -> None:
         df = self._last_forecast_combined
         if df is None or df.empty:
-            QMessageBox.information(self, "グラフ", "先に「予測を実行」を行ってください。")
+            show_information(self, "グラフ", "先に「予測を実行」を行ってください。")
             return
         self._busy_overlay.show_message("グラフを準備中…")
         QApplication.processEvents()
         try:
-            cust = self._customer_combo.currentText().strip()
-            cust_lbl = "全顧客" if cust in ("", "（すべて）") else cust
+            cust_lbl = self._customer_display_label(self._customer_combo.currentText())
             prod_lbl = self._product_combo.currentText().strip() or "全品番"
             period_lbl = self._pending_search_period_note or "—"
             sub = (
@@ -802,10 +1053,11 @@ class MainWindow(QMainWindow):
     def _on_forecast_excel(self) -> None:
         df = self._last_forecast_combined
         if df is None or df.empty:
-            QMessageBox.information(self, "Excel", "先に「予測を実行」を行ってください。")
+            show_information(self, "Excel", "先に「予測を実行」を行ってください。")
             return
+        default_name = self._default_excel_export_name(include_forecast=True)
         path, _ = QFileDialog.getSaveFileName(
-            self, "Excel 保存（予測）", "", "Excel (*.xlsx)"
+            self, "Excel 保存（予測）", default_name, "Excel (*.xlsx)"
         )
         if not path:
             return
@@ -816,14 +1068,25 @@ class MainWindow(QMainWindow):
         try:
             act = df[df["種別"] == "実績"].drop(columns=["種別"], errors="ignore")
             pred = df[df["種別"] == "予測"].drop(columns=["種別"], errors="ignore")
+            cust_lbl = self._customer_display_label(self._customer_combo.currentText())
+            prod_lbl = self._product_combo.currentText().strip() or "全品番"
+            period_lbl = self._pending_search_period_note or "—"
             export_service.export_two_sheets(
                 path,
                 act,
                 pred,
                 meta=self._last_forecast_note,
+                yearly_chart_df=df,
+                chart_title="年別推移（実績と予測）",
+                chart_subtitle=(
+                    f"顧客: {cust_lbl} / 品番: {prod_lbl} / 対象期間: {period_lbl}\n"
+                    f"{self._last_forecast_note}"
+                ),
             )
-            QMessageBox.information(self, "Excel", "保存しました。")
+            self._busy_overlay.hide_overlay()
+            show_information(self, "Excel", "保存しました。")
         except export_service.ExportError as e:
-            QMessageBox.warning(self, "Excel", str(e))
+            self._busy_overlay.hide_overlay()
+            show_warning(self, "Excel", str(e))
         finally:
             self._busy_overlay.hide_overlay()
