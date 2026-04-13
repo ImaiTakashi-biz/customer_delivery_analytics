@@ -27,6 +27,7 @@ import pandas as pd  # noqa: F401
 # Qt より前に dateutil.rrule 経路を解決しておく。
 import matplotlib.dates  # noqa: F401
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.config import settings
@@ -64,8 +65,20 @@ def _report_fatal_startup_error(exc: BaseException, q_app: QApplication | None) 
 def main() -> int:
     q_app: QApplication | None = None
     try:
+        if sys.platform == "win32":
+            try:
+                import ctypes
+
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "customer_delivery_analytics.desktop"
+                )
+            except Exception:
+                pass
         q_app = QApplication(sys.argv)
         q_app.setApplicationName(settings.APP_DISPLAY_NAME)
+        icon_path = settings.app_icon_png_path()
+        if icon_path.exists():
+            q_app.setWindowIcon(QIcon(str(icon_path)))
         # Windows 11 等では setApplicationDisplayName がタイトルバーに連結され、
         # WINDOW_TITLE 内の日本語名と二重表示になるため設定しない。
         apply_app_theme(q_app)
@@ -73,6 +86,8 @@ def main() -> int:
 
         window = MainWindow()
         window.setWindowTitle(settings.WINDOW_TITLE)
+        if icon_path.exists():
+            window.setWindowIcon(QIcon(str(icon_path)))
         # トップレベルでも、起動直後のみ参照が弱いとウィンドウが消える事例があるため保持する
         q_app._cda_main_window_ref = window  # type: ignore[attr-defined]
         window.showMaximized()

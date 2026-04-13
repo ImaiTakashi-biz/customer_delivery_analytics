@@ -1,132 +1,513 @@
 # -*- coding: utf-8 -*-
-"""
-年次ベースの予測。
-
-現行アルゴリズム（LinearTrendYearlyStrategy）:
-    - 入力は「各西暦年の納品数合計・金額合計」の時系列（実績のみ）。
-    - 納品数・金額それぞれについて、年を説明変数とした一次多項式を numpy.polyfit（次数1）
-      で当てはめ、直線を「最終実績年の翌年」から指定年数ぶん外挿する。
-    - 実績が1年分だけのときは傾きを持てないため、その年の値を一定（横ばい）で延長する。
-    - 外挿結果が負になる場合は 0 に切り詰める。
-
-未実装（仕様検討用）:
-    移動平均・前年同月比・CAGR による統計系、および scikit-learn 等の ML 系は別戦略として
-    YearlyForecastStrategy を実装すれば差し替え可能。
-"""
+"""年次予測ロジック。"""
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import Tuple
+from dataclasses import dataclass
+from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
 
-
-class YearlyForecastStrategy(ABC):
-    """年次系列から将来 N 年分の納品数・金額を予測する戦略の基底。"""
-
-    @abstractmethod
-    def predict(
-        self,
-        years: np.ndarray,
-        quantities: np.ndarray,
-        amounts: np.ndarray,
-        future_year_count: int,
-    ) -> Tuple[pd.DataFrame, str]:
-        """
-        years: 実績の年（昇順・整数）
-        quantities, amounts: 各年の合計
-        戻り値: (予測結果 DataFrame[年, 納品数, 金額, 種別], 説明テキスト)
-        """
-        raise NotImplementedError
+try:
+    from sklearn.linear_model import LinearRegression
+except Exception:  # noqa: BLE001
+    LinearRegression = None
 
 
-class LinearTrendYearlyStrategy(YearlyForecastStrategy):
-    """
-    一次の最小二乗直線（numpy.polyfit 次数1）で外挿。
-    説明しやすい初版向け。点数が1のときは直近値を横ばいで延長。
-    """
+@dataclass(frozen=True)
+class ForecastModel:
+    coefficients: np.ndarray
+    intercept: float
+    feature_names: tuple[str, ...]
+    algorithm: str
 
-    def predict(
-        self,
-        years: np.ndarray,
-        quantities: np.ndarray,
-        amounts: np.ndarray,
-        future_year_count: int,
-    ) -> Tuple[pd.DataFrame, str]:
-        if future_year_count < 1:
-            raise ValueError("予測年数は 1 以上にしてください。")
-        if len(years) == 0:
-            return (
-                pd.DataFrame(columns=["年", "納品数", "金額", "種別"]),
-                "実績データがないため予測できません。",
+
+@dataclass(frozen=True)
+class ForecastBundle:
+    comparison_df: pd.DataFrame
+    chart_df: pd.DataFrame
+    summary_lines: list[str]
+    graph_note: str
+    future_indicator_df: pd.DataFrame
+
+
+LINEAR_KIND = "直線延長予測"
+WEIGHTED_KIND = "重み付き回帰予測"
+EXTERNAL_KIND = "外部要因予測"
+
+
+def generate_weights(length: int) -> np.ndarray:
+    """古い年は軽く、直近年を重くする。"""
+    if length <= 0:
+        return np.array([], dtype=float)
+    if length == 1:
+        return np.array([1.0], dtype=float)
+
+    anchors = np.array([1.0, 1.2, 1.5, 2.0, 3.0, 5.0, 8.0], dtype=float)
+    positions = np.linspace(0, len(anchors) - 1, num=length)
+    return np.interp(positions, np.arange(len(anchors), dtype=float), anchors)
+
+
+def fit_standard_model(
+    years: Sequence[float],
+    values: Sequence[float],
+    weights: Sequence[float] | None = None,
+) -> ForecastModel:
+    x = np.asarray(years, dtype=float).reshape(-1, 1)
+    y = np.asarray(values, dtype=float)
+    w = _normalize_weights(len(y), weights)
+    return _fit_linear_model(x, y, w, feature_names=("year",))
+
+
+def fit_external_model(
+    years: Sequence[float],
+    iip_values: Sequence[float],
+    ci_values: Sequence[float],
+    values: Sequence[float],
+    weights: Sequence[float] | None = None,
+) -> ForecastModel:
+    x = np.column_stack(
+        [
+            np.asarray(years, dtype=float),
+            np.asarray(iip_values, dtype=float),
+            np.asarray(ci_values, dtype=float),
+        ]
+    )
+    y = np.asarray(values, dtype=float)
+    w = _normalize_weights(len(y), weights)
+    return _fit_linear_model(x, y, w, feature_names=("year", "iip_avg", "ci_avg"))
+
+
+def predict(model: ForecastModel, features: Sequence[Sequence[float]] | np.ndarray) -> np.ndarray:
+    x = np.asarray(features, dtype=float)
+    if x.ndim == 1:
+        x = x.reshape(-1, len(model.feature_names))
+    return np.asarray(x @ model.coefficients + model.intercept, dtype=float)
+
+
+def build_future_iip_ci(
+    indicator_yearly: pd.DataFrame,
+    future_years: Sequence[int],
+    user_inputs: pd.DataFrame | dict[int, dict[str, float]] | None = None,
+) -> pd.DataFrame:
+    future_years = np.asarray(list(future_years), dtype=int)
+    out = pd.DataFrame({"年": future_years})
+    history = indicator_yearly.copy() if indicator_yearly is not None else pd.DataFrame()
+    if "年" in history.columns:
+        history["年"] = pd.to_numeric(history["年"], errors="coerce")
+
+    overrides = _normalize_future_inputs(user_inputs)
+    for value_col in ("iip_avg", "ci_avg"):
+        provided = overrides[["年", value_col]].dropna(subset=["年", value_col])
+        provided_map = provided.drop_duplicates(subset=["年"]).set_index("年")[value_col]
+        values = out["年"].map(provided_map)
+
+        hist_part = history[["年", value_col]].dropna(subset=["年", value_col]).copy()
+        if hist_part.empty:
+            out[value_col] = values.fillna(0.0).to_numpy(dtype=float)
+            continue
+
+        missing_mask = values.isna()
+        if missing_mask.any():
+            values.loc[missing_mask] = _forecast_feature_series(
+                hist_part["年"].to_numpy(dtype=float),
+                hist_part[value_col].to_numpy(dtype=float),
+                out.loc[missing_mask, "年"].to_numpy(dtype=float),
             )
-
-        last_year = int(np.max(years))
-        future_years = np.arange(last_year + 1, last_year + 1 + future_year_count, dtype=int)
-
-        def _line_or_flat(y_arr: np.ndarray, v_arr: np.ndarray) -> np.ndarray:
-            if len(y_arr) >= 2:
-                coef = np.polyfit(y_arr.astype(float), v_arr.astype(float), 1)
-                return np.polyval(coef, future_years.astype(float))
-            # 1点のみ: 定数
-            return np.full(shape=future_years.shape, fill_value=float(v_arr[0]))
-
-        q_pred = _line_or_flat(years, quantities)
-        a_pred = _line_or_flat(years, amounts)
-        # 負値は業務上不自然なので 0 下限
-        q_pred = np.maximum(q_pred, 0.0)
-        a_pred = np.maximum(a_pred, 0.0)
-
-        out = pd.DataFrame(
-            {
-                "年": future_years,
-                "納品数": q_pred,
-                "金額": a_pred,
-                "種別": "予測",
-            }
-        )
-        if len(years) >= 2:
-            note = (
-                "予測方法: 年ごとの合計実績の傾向を直線で表し、"
-                "その傾向を将来年へ延長しています（最小二乗法）。"
-                " 納品数と金額は別々に計算します。"
-            )
-        else:
-            note = (
-                f"予測方法: 実績が 1 年分のみのため、{last_year} 年の値を"
-                "そのまま将来年へ延長しています。"
-            )
-        return out, note
+        out[value_col] = values.to_numpy(dtype=float)
+    return out
 
 
-def run_yearly_forecast(
+def run_yearly_forecast_bundle(
     actual_yearly: pd.DataFrame,
+    indicator_yearly: pd.DataFrame,
     future_year_count: int,
-    strategy: YearlyForecastStrategy | None = None,
-) -> Tuple[pd.DataFrame, pd.DataFrame, str]:
-    """
-    actual_yearly: 列 [年, 納品数, 金額]（種別列があれば無視可）
-    戻り値: (実績に種別付与, 予測, 説明)
-    """
-    strat = strategy or LinearTrendYearlyStrategy()
+    *,
+    future_indicator_inputs: pd.DataFrame | dict[int, dict[str, float]] | None = None,
+    macro_factors: float | pd.DataFrame | dict[int, float] | None = None,
+) -> ForecastBundle:
+    actual = _prepare_actual_yearly(actual_yearly)
+    if actual.empty:
+        empty = pd.DataFrame(
+            columns=[
+                "年",
+                "実績\n納品数",
+                "実績\n金額",
+                "直線延長\n納品数",
+                "直線延長\n金額",
+                "重み付き回帰\n納品数",
+                "重み付き回帰\n金額",
+                "外部要因予測\n納品数",
+                "外部要因予測\n金額",
+            ]
+        )
+        return ForecastBundle(
+            comparison_df=empty,
+            chart_df=pd.DataFrame(columns=["年", "納品数", "金額", "種別"]),
+            summary_lines=[
+                "直線延長: データ不足のため計算できません",
+                "重み付き回帰: データ不足のため計算できません",
+                "外部要因予測: データ不足のため計算できません",
+            ],
+            graph_note="直線: 最小二乗 / 重み: 直近重視 / 外部: IIP・CI反映値なし",
+            future_indicator_df=pd.DataFrame(columns=["年", "iip_avg", "ci_avg", "macro_factor"]),
+        )
+
+    future_years = np.arange(
+        int(actual["年"].max()) + 1,
+        int(actual["年"].max()) + 1 + future_year_count,
+        dtype=int,
+    )
+    linear_qty_model = fit_standard_model(actual["年"], actual["納品数"], None)
+    linear_amt_model = fit_standard_model(actual["年"], actual["金額"], None)
+    linear_features = future_years.reshape(-1, 1)
+    linear_qty = np.maximum(predict(linear_qty_model, linear_features), 0.0)
+    linear_amt = np.maximum(predict(linear_amt_model, linear_features), 0.0)
+
+    weights = generate_weights(len(actual.index))
+    weighted_qty_model = fit_standard_model(actual["年"], actual["納品数"], weights)
+    weighted_amt_model = fit_standard_model(actual["年"], actual["金額"], weights)
+    weighted_features = future_years.reshape(-1, 1)
+    weighted_qty = np.maximum(predict(weighted_qty_model, weighted_features), 0.0)
+    weighted_amt = np.maximum(predict(weighted_amt_model, weighted_features), 0.0)
+
+    future_indicator_df = build_future_iip_ci(
+        indicator_yearly,
+        future_years,
+        user_inputs=future_indicator_inputs,
+    )
+    future_indicator_df["macro_factor"] = _resolve_macro_factors(future_years, macro_factors)
+
+    external_history = actual.merge(
+        indicator_yearly[["年", "iip_avg", "ci_avg"]].copy(),
+        on="年",
+        how="left",
+    ).dropna(subset=["iip_avg", "ci_avg"])
+
+    if len(external_history.index) >= 3:
+        external_weights = generate_weights(len(external_history.index))
+        external_qty_model = fit_external_model(
+            external_history["年"],
+            external_history["iip_avg"],
+            external_history["ci_avg"],
+            external_history["納品数"],
+            external_weights,
+        )
+        external_amt_model = fit_external_model(
+            external_history["年"],
+            external_history["iip_avg"],
+            external_history["ci_avg"],
+            external_history["金額"],
+            external_weights,
+        )
+        external_features = future_indicator_df[["年", "iip_avg", "ci_avg"]].to_numpy(dtype=float)
+        external_qty = np.maximum(predict(external_qty_model, external_features), 0.0)
+        external_amt = np.maximum(predict(external_amt_model, external_features), 0.0)
+        external_source = "IIP・CIを含む多変量回帰"
+    else:
+        external_qty = weighted_qty.copy()
+        external_amt = weighted_amt.copy()
+        external_source = "IIP・CI年次値が不足のため重み付き回帰を代用"
+
+    # 将来拡張: 高頻度 / 中頻度 / 低頻度のランク別係数をここへ乗せる。
+    macro_factor_values = future_indicator_df["macro_factor"].to_numpy(dtype=float)
+    external_qty = np.maximum(external_qty * macro_factor_values, 0.0)
+    external_amt = np.maximum(external_amt * macro_factor_values, 0.0)
+
+    actual_chart = actual.assign(種別="実績")
+    linear_chart = pd.DataFrame(
+        {
+            "年": future_years,
+            "納品数": linear_qty,
+            "金額": linear_amt,
+            "種別": LINEAR_KIND,
+        }
+    )
+    weighted_chart = pd.DataFrame(
+        {
+            "年": future_years,
+            "納品数": weighted_qty,
+            "金額": weighted_amt,
+            "種別": WEIGHTED_KIND,
+        }
+    )
+    external_chart = pd.DataFrame(
+        {
+            "年": future_years,
+            "納品数": external_qty,
+            "金額": external_amt,
+            "種別": EXTERNAL_KIND,
+        }
+    )
+    chart_df = pd.concat(
+        [actual_chart, linear_chart, weighted_chart, external_chart],
+        ignore_index=True,
+    )
+    chart_df["納品数"] = pd.to_numeric(chart_df["納品数"], errors="coerce").round(0)
+    chart_df["金額"] = pd.to_numeric(chart_df["金額"], errors="coerce").round(0)
+
+    comparison_df = _build_comparison_table(
+        actual_chart,
+        linear_chart,
+        weighted_chart,
+        external_chart,
+    )
+    summary_lines = _build_summary_lines(
+        actual,
+        external_history,
+        future_indicator_df,
+        external_source=external_source,
+        macro_factors=macro_factor_values,
+    )
+    return ForecastBundle(
+        comparison_df=comparison_df,
+        chart_df=chart_df,
+        summary_lines=summary_lines,
+        graph_note=_build_graph_note(external_history, future_indicator_df),
+        future_indicator_df=future_indicator_df,
+    )
+
+def _fit_linear_model(
+    features: np.ndarray,
+    values: np.ndarray,
+    weights: np.ndarray,
+    *,
+    feature_names: Iterable[str],
+) -> ForecastModel:
+    if values.size == 0:
+        return ForecastModel(
+            coefficients=np.zeros(features.shape[1], dtype=float),
+            intercept=0.0,
+            feature_names=tuple(feature_names),
+            algorithm="empty",
+        )
+
+    if values.size == 1:
+        return ForecastModel(
+            coefficients=np.zeros(features.shape[1], dtype=float),
+            intercept=float(values[0]),
+            feature_names=tuple(feature_names),
+            algorithm="flat",
+        )
+
+    if LinearRegression is not None:
+        model = LinearRegression()
+        model.fit(features, values, sample_weight=weights)
+        return ForecastModel(
+            coefficients=np.asarray(model.coef_, dtype=float),
+            intercept=float(model.intercept_),
+            feature_names=tuple(feature_names),
+            algorithm="sklearn",
+        )
+
+    weighted_features = np.column_stack([features, np.ones(len(values), dtype=float)])
+    sqrt_weights = np.sqrt(weights).reshape(-1, 1)
+    coef, *_ = np.linalg.lstsq(
+        weighted_features * sqrt_weights,
+        values * sqrt_weights.ravel(),
+        rcond=None,
+    )
+    return ForecastModel(
+        coefficients=np.asarray(coef[:-1], dtype=float),
+        intercept=float(coef[-1]),
+        feature_names=tuple(feature_names),
+        algorithm="numpy",
+    )
+
+
+def _normalize_weights(length: int, weights: Sequence[float] | None) -> np.ndarray:
+    if weights is None:
+        return np.ones(length, dtype=float)
+    arr = np.asarray(weights, dtype=float)
+    if arr.size != length:
+        raise ValueError("weights の件数がデータ件数と一致していません。")
+    return arr
+
+
+def _prepare_actual_yearly(actual_yearly: pd.DataFrame) -> pd.DataFrame:
     if actual_yearly is None or actual_yearly.empty:
-        empty = pd.DataFrame(columns=["年", "納品数", "金額", "種別"])
-        pred, msg = strat.predict(np.array([]), np.array([]), np.array([]), future_year_count)
-        return empty, pred, msg
+        return pd.DataFrame(columns=["年", "納品数", "金額"])
 
     work = actual_yearly.copy()
     for col in ("年", "納品数", "金額"):
         if col not in work.columns:
-            raise ValueError(f"実績に必須列がありません: {col}")
-    work = work.sort_values("年")
-    years = work["年"].to_numpy(dtype=int)
-    q = work["納品数"].to_numpy(dtype=float)
-    a = work["金額"].to_numpy(dtype=float)
+            raise ValueError(f"年次予測に必要な列がありません: {col}")
+        work[col] = pd.to_numeric(work[col], errors="coerce")
+    work = work.dropna(subset=["年", "納品数", "金額"]).copy()
+    work["年"] = work["年"].astype(int)
+    work = work.sort_values("年").reset_index(drop=True)
+    return work[["年", "納品数", "金額"]]
 
-    act_out = work[["年", "納品数", "金額"]].copy()
-    act_out["種別"] = "実績"
 
-    pred, note = strat.predict(years, q, a, future_year_count)
-    return act_out, pred, note
+def _forecast_feature_series(
+    history_years: np.ndarray,
+    history_values: np.ndarray,
+    future_years: np.ndarray,
+) -> np.ndarray:
+    if len(history_values) >= 2:
+        model = fit_standard_model(history_years, history_values)
+        return predict(model, future_years.reshape(-1, 1))
+    if len(history_values) == 1:
+        return np.full_like(future_years, fill_value=float(history_values[-1]), dtype=float)
+    return np.zeros_like(future_years, dtype=float)
+
+
+def _normalize_future_inputs(
+    user_inputs: pd.DataFrame | dict[int, dict[str, float]] | None,
+) -> pd.DataFrame:
+    if user_inputs is None:
+        return pd.DataFrame(columns=["年", "iip_avg", "ci_avg"])
+    if isinstance(user_inputs, pd.DataFrame):
+        out = user_inputs.copy()
+    else:
+        rows = []
+        for year, values in user_inputs.items():
+            rows.append(
+                {
+                    "年": int(year),
+                    "iip_avg": values.get("iip_avg"),
+                    "ci_avg": values.get("ci_avg"),
+                }
+            )
+        out = pd.DataFrame(rows)
+    if out.empty:
+        return pd.DataFrame(columns=["年", "iip_avg", "ci_avg"])
+    for col in ("年", "iip_avg", "ci_avg"):
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out[[col for col in ("年", "iip_avg", "ci_avg") if col in out.columns]]
+
+
+def _resolve_macro_factors(
+    future_years: np.ndarray,
+    macro_factors: float | pd.DataFrame | dict[int, float] | None,
+) -> np.ndarray:
+    if macro_factors is None:
+        return np.ones_like(future_years, dtype=float)
+    if isinstance(macro_factors, (int, float)):
+        return np.full_like(future_years, fill_value=float(macro_factors), dtype=float)
+    if isinstance(macro_factors, dict):
+        values = [float(macro_factors.get(int(year), 1.0)) for year in future_years]
+        return np.asarray(values, dtype=float)
+
+    work = macro_factors.copy()
+    if "年" not in work.columns or "macro_factor" not in work.columns:
+        return np.ones_like(future_years, dtype=float)
+    work["年"] = pd.to_numeric(work["年"], errors="coerce")
+    work["macro_factor"] = pd.to_numeric(work["macro_factor"], errors="coerce")
+    mapping = dict(zip(work["年"].dropna().astype(int), work["macro_factor"].fillna(1.0)))
+    return np.asarray([float(mapping.get(int(year), 1.0)) for year in future_years], dtype=float)
+
+
+def _build_comparison_table(
+    actual_chart: pd.DataFrame,
+    linear_chart: pd.DataFrame,
+    weighted_chart: pd.DataFrame,
+    external_chart: pd.DataFrame,
+) -> pd.DataFrame:
+    parts = [
+        actual_chart[["年", "納品数", "金額"]]
+        .rename(columns={"納品数": "実績\n納品数", "金額": "実績\n金額"})
+        .set_index("年"),
+        linear_chart[["年", "納品数", "金額"]]
+        .rename(columns={"納品数": "直線延長\n納品数", "金額": "直線延長\n金額"})
+        .set_index("年"),
+        weighted_chart[["年", "納品数", "金額"]]
+        .rename(columns={"納品数": "重み付き回帰\n納品数", "金額": "重み付き回帰\n金額"})
+        .set_index("年"),
+        external_chart[["年", "納品数", "金額"]]
+        .rename(columns={"納品数": "外部要因予測\n納品数", "金額": "外部要因予測\n金額"})
+        .set_index("年"),
+    ]
+    out = pd.concat(parts, axis=1).reset_index().sort_values("年").reset_index(drop=True)
+
+    for col in out.columns:
+        if col == "年":
+            out[col] = out[col].astype(int)
+            continue
+        out[col] = pd.to_numeric(out[col], errors="coerce").round(0)
+    return out
+
+
+def _build_summary_lines(
+    actual: pd.DataFrame,
+    external_history: pd.DataFrame,
+    future_indicator_df: pd.DataFrame,
+    *,
+    external_source: str,
+    macro_factors: np.ndarray,
+) -> list[str]:
+    start_year = int(actual["年"].min())
+    end_year = int(actual["年"].max())
+    macro_text = "調整係数なし"
+    if macro_factors.size > 0 and not np.allclose(macro_factors, 1.0):
+        macro_text = f"調整係数 {macro_factors.min():.2f}〜{macro_factors.max():.2f}"
+
+    return [
+        f"直線延長: {start_year}〜{end_year}年を最小二乗で延長",
+        _build_weight_summary_line(actual),
+        f"外部要因予測: IIP=鉱工業生産指数 / CI=景気動向指数",
+        _build_indicator_reflection_line(external_history, future_indicator_df),
+        f"外部要因: {macro_text}",
+        _build_weight_detail_line(actual),
+    ]
+
+
+def _build_weight_summary_line(actual: pd.DataFrame) -> str:
+    years = actual["年"].astype(int).tolist()
+    weights = generate_weights(len(years))
+    if not years:
+        return "重み付き回帰: 重みなし"
+    return (
+        "重み付き回帰: "
+        f"{years[0]}={weights[0]:.2f} → {years[-1]}={weights[-1]:.2f}（直近重視）"
+    )
+
+
+def _build_weight_detail_line(actual: pd.DataFrame) -> str:
+    years = actual["年"].astype(int).tolist()
+    weights = generate_weights(len(years))
+    if not years:
+        return "重み詳細: なし"
+    parts = [f"{year}={weight:.2f}" for year, weight in zip(years, weights)]
+    return "重み詳細: " + " / ".join(parts)
+
+
+def _build_indicator_reflection_line(
+    external_history: pd.DataFrame,
+    future_indicator_df: pd.DataFrame,
+) -> str:
+    history = external_history.dropna(subset=["iip_avg", "ci_avg"]).copy()
+    future = future_indicator_df.dropna(subset=["iip_avg", "ci_avg"]).copy()
+    if history.empty or future.empty:
+        return "反映値: IIP / CI の年次値不足"
+
+    base_row = history.sort_values("年").iloc[-1]
+    first_future = future.sort_values("年").iloc[0]
+    last_future = future.sort_values("年").iloc[-1]
+    return (
+        "反映値: "
+        f"基準 {int(base_row['年'])}年 IIP={float(base_row['iip_avg']):.1f}, CI={float(base_row['ci_avg']):.1f} / "
+        f"将来 {int(first_future['年'])}年→{int(last_future['年'])}年 "
+        f"IIP={float(first_future['iip_avg']):.1f}→{float(last_future['iip_avg']):.1f}, "
+        f"CI={float(first_future['ci_avg']):.1f}→{float(last_future['ci_avg']):.1f}"
+    )
+
+
+def _build_graph_note(
+    external_history: pd.DataFrame,
+    future_indicator_df: pd.DataFrame,
+) -> str:
+    history = external_history.dropna(subset=["iip_avg", "ci_avg"]).copy()
+    future = future_indicator_df.dropna(subset=["iip_avg", "ci_avg"]).copy()
+    if history.empty or future.empty:
+        return "直線: 最小二乗 / 重み: 直近重視 / 外部: IIP・CI値不足"
+
+    first_future = future.sort_values("年").iloc[0]
+    last_future = future.sort_values("年").iloc[-1]
+    return (
+        "直線: 最小二乗 / 重み: 直近重視 / "
+        f"外部: IIP {float(first_future['iip_avg']):.1f}→{float(last_future['iip_avg']):.1f}, "
+        f"CI {float(first_future['ci_avg']):.1f}→{float(last_future['ci_avg']):.1f}"
+    )

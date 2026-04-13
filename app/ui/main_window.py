@@ -10,7 +10,6 @@ from PySide6.QtCore import QDate, QPoint, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -19,13 +18,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStyle,
     QStyleOptionSpinBox,
     QSpinBox,
     QSplitter,
     QTableView,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -88,6 +87,140 @@ def _make_chart_button_icon() -> QIcon:
     painter.drawRect(4, 8, 2, 3)
     painter.drawRect(7, 6, 2, 5)
     painter.drawRect(10, 4, 2, 7)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_year_chart_button_icon() -> QIcon:
+    """年別推移グラフ用の棒グラフアイコン。"""
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#2563eb"))
+    painter.drawRoundedRect(1, 1, 14, 14, 4, 4)
+
+    painter.setPen(QPen(QColor("#ffffff"), 1.2))
+    painter.drawLine(4, 11, 12, 11)
+    painter.drawLine(4, 11, 4, 4)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawRoundedRect(5, 8, 2, 3, 1, 1)
+    painter.drawRoundedRect(8, 6, 2, 5, 1, 1)
+    painter.drawRoundedRect(11, 4, 2, 7, 1, 1)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_month_chart_button_icon() -> QIcon:
+    """月別推移グラフ用の折れ線グラフアイコン。"""
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#0f766e"))
+    painter.drawRoundedRect(1, 1, 14, 14, 4, 4)
+
+    painter.setPen(QPen(QColor("#ffffff"), 1.4))
+    painter.drawLine(4, 11, 12, 11)
+    painter.drawLine(4, 11, 4, 4)
+    points = [QPoint(5, 9), QPoint(7, 7), QPoint(9, 8), QPoint(12, 5)]
+    for start, end in zip(points, points[1:]):
+        painter.drawLine(start, end)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#ffffff"))
+    for point in points:
+        painter.drawEllipse(point, 1, 1)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_forecast_chart_button_icon() -> QIcon:
+    """予測グラフ用の上向きトレンドアイコン。"""
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#d97706"))
+    painter.drawRoundedRect(1, 1, 14, 14, 4, 4)
+
+    painter.setPen(QPen(QColor("#ffffff"), 1.4))
+    painter.drawLine(4, 11, 12, 11)
+    painter.drawLine(4, 11, 4, 4)
+    points = [QPoint(5, 9), QPoint(7, 8), QPoint(9, 7), QPoint(11, 5)]
+    for start, end in zip(points, points[1:]):
+        painter.drawLine(start, end)
+    painter.drawLine(11, 5, 11, 8)
+    painter.drawLine(11, 5, 8, 5)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#ffffff"))
+    for point in points[:-1]:
+        painter.drawEllipse(point, 1, 1)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_search_button_icon() -> QIcon:
+    """検索ボタン用（虫眼鏡）。プライマリ青はテーマの QPushButton と揃える。"""
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#2563eb"))
+    painter.drawRoundedRect(1, 1, 14, 14, 4, 4)
+
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(QPen(QColor("#ffffff"), 1.35))
+    painter.drawEllipse(4, 4, 6, 6)
+    painter.drawLine(9, 9, 12, 12)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_forecast_run_button_icon() -> QIcon:
+    """予測を実行ボタン用（再生マーク）。"""
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#2563eb"))
+    painter.drawRoundedRect(1, 1, 14, 14, 4, 4)
+
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawPolygon(
+        QPolygon([QPoint(6, 4), QPoint(6, 12), QPoint(12, 8)])
+    )
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_forecast_detail_button_icon() -> QIcon:
+    """予測算出詳細ボタン用（リスト／説明）。セカンダリ白ボタン列と同系の青バッジ。"""
+    pixmap = QPixmap(16, 16)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#2563eb"))
+    painter.drawRoundedRect(1, 1, 14, 14, 4, 4)
+
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawRoundedRect(4, 3, 8, 10, 1.5, 1.5)
+    painter.setPen(QPen(QColor("#2563eb"), 1.0))
+    painter.drawLine(6, 6, 10, 6)
+    painter.drawLine(6, 8, 10, 8)
+    painter.drawLine(6, 10, 9, 10)
     painter.end()
     return QIcon(pixmap)
 
@@ -173,30 +306,32 @@ class ChartYearlyDialog(QDialog):
         else:
             if "種別" not in work.columns:
                 work["種別"] = "実績"
-            act = work[work["種別"] == "実績"]
-            pred = work[work["種別"] == "予測"]
             all_years = sorted(
                 {int(y) for y in work["年"].dropna().tolist()}
             )
+            kind_styles = {
+                "実績": ("o", "-", "tab:blue"),
+                "予測": ("s", "--", "tab:orange"),
+                "直線延長予測": ("s", ":", "#c2410c"),
+                "重み付き回帰予測": ("D", "--", "#ea580c"),
+                "外部要因予測": ("^", "-.", "tab:green"),
+            }
 
             def _plot_pair(ax, col: str, ylabel: str) -> None:
-                if not act.empty:
-                    ax.plot(
-                        act["年"],
-                        act[col],
-                        marker="o",
-                        linestyle="-",
-                        color="tab:blue",
-                        label="実績",
+                for kind in work["種別"].dropna().unique().tolist():
+                    part = work[work["種別"] == kind]
+                    if part.empty:
+                        continue
+                    marker, linestyle, color = kind_styles.get(
+                        kind, ("o", "-", "#475569")
                     )
-                if not pred.empty:
                     ax.plot(
-                        pred["年"],
-                        pred[col],
-                        marker="s",
-                        linestyle="--",
-                        color="tab:orange",
-                        label="予測",
+                        part["年"],
+                        part[col],
+                        marker=marker,
+                        linestyle=linestyle,
+                        color=color,
+                        label=str(kind),
                     )
                 ax.set_ylabel(ylabel)
                 ax.grid(True, alpha=0.3)
@@ -229,6 +364,191 @@ class ChartYearlyDialog(QDialog):
         layout.addWidget(bbox)
 
 
+class ChartMonthlyDialog(QDialog):
+    """月別推移グラフ。"""
+
+    def __init__(
+        self,
+        parent,
+        df_monthly: pd.DataFrame,
+        title: str = "月別推移",
+        *,
+        subtitle: str = "",
+    ) -> None:
+        super().__init__(parent)
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+        from matplotlib.figure import Figure
+        from matplotlib.ticker import StrMethodFormatter
+
+        self.setWindowTitle(title)
+        self.setMinimumSize(860, 540)
+        self.resize(960, 620)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+        fig = Figure(figsize=(8.6, 5.6), facecolor="#ffffff")
+        canvas = FigureCanvasQTAgg(fig)
+
+        ax1 = fig.add_subplot(2, 1, 1)
+        ax2 = fig.add_subplot(2, 1, 2)
+        ax1.set_facecolor("#fafafa")
+        ax2.set_facecolor("#fafafa")
+
+        work = df_monthly.copy()
+        if work.empty:
+            ax1.text(0.5, 0.5, "表示するデータがありません", ha="center", va="center")
+            ax2.text(0.5, 0.5, "表示するデータがありません", ha="center", va="center")
+        else:
+            labels = work["年月"].astype(str).tolist()
+            positions = list(range(len(labels)))
+            tick_step = max(1, len(labels) // 12)
+            tick_positions = positions[::tick_step] or positions
+            if positions and tick_positions[-1] != positions[-1]:
+                tick_positions.append(positions[-1])
+            tick_labels = [labels[idx] for idx in tick_positions]
+
+            def _plot_month(ax, col: str, ylabel: str) -> None:
+                ax.plot(
+                    positions,
+                    work[col],
+                    marker="o",
+                    linestyle="-",
+                    color="tab:blue",
+                    label="実績",
+                )
+                ax.set_ylabel(ylabel)
+                ax.grid(True, alpha=0.3)
+                ax.legend(loc="upper left", frameon=False, fontsize=8)
+                ax.ticklabel_format(style="plain", axis="y", useOffset=False)
+                ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+                ax.set_xticks(tick_positions)
+                ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+
+            _plot_month(ax1, "納品数", "納品数（月合計）")
+            _plot_month(ax2, "金額", "金額（円・月合計）")
+            ax2.set_xlabel("年月")
+
+        if subtitle:
+            fig.suptitle(f"{title}\n{subtitle}", fontsize=10, color="#1f2937")
+        else:
+            fig.suptitle(title, fontsize=11, color="#1f2937")
+        fig.tight_layout(rect=(0, 0, 1.0, 0.92))
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(canvas, stretch=1)
+        bbox = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bbox.rejected.connect(self.reject)
+        layout.addWidget(bbox)
+
+
+class ForecastExplanationDialog(QDialog):
+    """予測算出の考え方をやさしく説明するダイアログ。"""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("forecastExplanationDialog")
+        self.setWindowTitle("予測算出の詳細")
+        self.setMinimumSize(660, 520)
+        self.resize(720, 560)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        title = QLabel("予測の見方")
+        title.setObjectName("forecastExplanationTitle")
+        root.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("forecastExplanationScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        content.setObjectName("forecastExplanationContent")
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(10)
+
+        sections = [
+            (
+                "1. この予測がしていること",
+                "検索で取り出した納品実績を年ごとに合計し、"
+                "これまでの増え方・減り方から先の年の目安を出しています。"
+                "難しい式を意識しなくても、"
+                "『過去の流れを使って先を見ている』と考えて大丈夫です。",
+            ),
+            (
+                "2. 3つの予測のちがい",
+                "直線延長は、これまでの全体の流れをそのまま先へ伸ばす見方です。"
+                "重み付き回帰は、少し前よりも最近の動きを強めに見ます。"
+                "外部要因予測は、社内の実績だけでなく、"
+                "景気や生産の動きを表す公的な指標も参考にします。",
+            ),
+            (
+                "3. 表とグラフの見方",
+                "3つの予測が近い数字なら、方向感はそろっていると見やすくなります。"
+                "逆に数字の差が大きいときは、"
+                "『まだ読み切れない要素があるかもしれない』と考えるのが自然です。"
+                "まずは増えそうか、横ばいか、減りそうかを見る使い方がおすすめです。",
+            ),
+            (
+                "4. そのままでは読み切れないこと",
+                "大きな単発案件、急な値上げや値下げ、"
+                "取引先の増減、新製品の開始や終了のような出来事は、"
+                "過去データだけでは十分に反映できない場合があります。"
+                "この予測は確定値ではなく、判断のための目安です。",
+            ),
+            (
+                "5. おすすめの使い方",
+                "まずは 3 年くらいで予測を見て、"
+                "3つの予測が同じ方向を向いているか確認してください。"
+                "そのあとにグラフで流れを見て、"
+                "必要なら Excel 出力で社内共有するのが使いやすい流れです。",
+            ),
+            (
+                "6. 算出の仕組み（要点）",
+                "直線延長も重み付きも、基本は『年』と実績の直線（最小二乗）です。"
+                "重み付きだけ、直近の年を強く反映します。"
+                "\n\n"
+                "外部要因は、年に加えて IIP（鉱工業生産指数）と CI（景気動向指数・一致）を使う直線モデルです。"
+                "将来の指標は履歴から外挿して入れます。"
+                "指標が十分にそろわない年が少ないと、外部要因の列は重み付きと同じ値になります（要約文にその旨が出ます）。"
+                "\n\n"
+                "納品数と金額は別々に回帰するため、グラフで二本の予測の開き方が違って見えることがあります。"
+                "外部要因は全国指数ベースの参考値であり、すべての顧客・品番に当てはまるとは限りません。",
+            ),
+        ]
+
+        for heading, body in sections:
+            card = QFrame()
+            card.setObjectName("forecastExplanationCard")
+            card_lay = QVBoxLayout(card)
+            card_lay.setContentsMargins(14, 12, 14, 12)
+            card_lay.setSpacing(6)
+
+            head_lb = QLabel(heading)
+            head_lb.setObjectName("forecastExplanationCardTitle")
+
+            body_lb = QLabel(body)
+            body_lb.setObjectName("forecastExplanationCardBody")
+            body_lb.setWordWrap(True)
+
+            card_lay.addWidget(head_lb)
+            card_lay.addWidget(body_lb)
+            content_lay.addWidget(card)
+
+        content_lay.addStretch(1)
+        scroll.setWidget(content)
+        root.addWidget(scroll, stretch=1)
+
+        bbox = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close_btn = bbox.button(QDialogButtonBox.StandardButton.Close)
+        if close_btn is not None:
+            close_btn.setText("閉じる")
+        bbox.rejected.connect(self.reject)
+        root.addWidget(bbox)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -238,8 +558,10 @@ class MainWindow(QMainWindow):
         self._last_raw_df: Optional[pd.DataFrame] = None
         self._search_worker: Optional[DeliverySearchWorker] = None
         self._forecast_worker: Optional[YearlyForecastFromRawWorker] = None
-        self._last_forecast_combined: Optional[pd.DataFrame] = None
-        self._last_forecast_note: str = ""
+        self._last_forecast_comparison: Optional[pd.DataFrame] = None
+        self._last_forecast_chart: Optional[pd.DataFrame] = None
+        self._last_forecast_summary_lines: list[str] = []
+        self._last_forecast_graph_note: str = ""
         self._pending_search_period_note: str = ""
         # 検索のたびに増加。古い予測ワーカーの完了は無視する。
         self._search_generation: int = 0
@@ -400,21 +722,24 @@ class MainWindow(QMainWindow):
         btn_search = QPushButton("検索")
         self._btn_search = btn_search
         self._btn_search.setObjectName("searchPrimaryButton")
+        btn_search.setIcon(_make_search_button_icon())
         btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_search.setEnabled(False)
         btn_search.clicked.connect(self._on_search)
-        excel_icon = _make_excel_button_icon()
         chart_icon = _make_chart_button_icon()
-        btn_excel = QPushButton("一覧を Excel 出力")
-        btn_excel.setObjectName("secondaryButton")
-        btn_excel.setIcon(excel_icon)
-        btn_excel.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_excel.clicked.connect(self._on_export_list)
-        btn_chart = QPushButton("年別推移グラフ")
-        btn_chart.setObjectName("secondaryButton")
-        btn_chart.setIcon(chart_icon)
-        btn_chart.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_chart.clicked.connect(self._on_chart_list)
+        year_chart_icon = _make_year_chart_button_icon()
+        month_chart_icon = _make_month_chart_button_icon()
+        forecast_chart_icon = _make_forecast_chart_button_icon()
+        btn_year_chart = QPushButton("年別推移グラフ")
+        btn_year_chart.setObjectName("secondaryButton")
+        btn_year_chart.setIcon(year_chart_icon)
+        btn_year_chart.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_year_chart.clicked.connect(self._on_chart_list)
+        btn_month_chart = QPushButton("月別推移グラフ")
+        btn_month_chart.setObjectName("secondaryButton")
+        btn_month_chart.setIcon(month_chart_icon)
+        btn_month_chart.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_month_chart.clicked.connect(self._on_chart_monthly)
 
         row_fields.addSpacing(6)
         row_fields.addWidget(btn_search, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -452,18 +777,19 @@ class MainWindow(QMainWindow):
         fc_row.addWidget(self._spin_forecast_years)
         self._btn_forecast_run = QPushButton("予測を実行")
         self._btn_forecast_run.setObjectName("forecastRunButton")
+        self._btn_forecast_run.setIcon(_make_forecast_run_button_icon())
         self._btn_forecast_run.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_forecast_run.setEnabled(False)
         self._btn_forecast_run.clicked.connect(self._on_forecast_run)
         self._btn_forecast_chart = QPushButton("予測グラフ")
         self._btn_forecast_chart.setObjectName("secondaryButton")
-        self._btn_forecast_chart.setIcon(chart_icon)
+        self._btn_forecast_chart.setIcon(forecast_chart_icon)
         self._btn_forecast_chart.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_forecast_chart.setEnabled(False)
         self._btn_forecast_chart.clicked.connect(self._on_forecast_chart)
         self._btn_forecast_excel = QPushButton("予測を Excel 出力")
         self._btn_forecast_excel.setObjectName("secondaryButton")
-        self._btn_forecast_excel.setIcon(excel_icon)
+        self._btn_forecast_excel.setIcon(_make_excel_button_icon())
         self._btn_forecast_excel.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_forecast_excel.setEnabled(False)
         self._btn_forecast_excel.clicked.connect(self._on_forecast_excel)
@@ -472,21 +798,42 @@ class MainWindow(QMainWindow):
         fc_row.addWidget(self._btn_forecast_excel)
         fc_row.addStretch()
 
-        self._forecast_note = QTextEdit()
-        self._forecast_note.setReadOnly(True)
-        self._forecast_note.setMaximumHeight(110)
-        self._forecast_note.setPlaceholderText(
-            "検索実行後、「予測を実行」で直近の検索明細を年合計にまとめ、将来年を算出します。"
+        self._forecast_note = QLabel(
+            "・直線延長: 合計実績を最小二乗で延長\n"
+            "・重み付き回帰: 直近年を強めに反映\n"
+            "・外部要因予測: IIP=鉱工業生産指数 / CI=景気動向指数"
         )
+        self._forecast_note.setWordWrap(True)
+        self._forecast_note.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        self._forecast_note.setMaximumHeight(88)
+        self._forecast_note.setMinimumHeight(76)
         self._forecast_note.setObjectName("forecastNoteBox")
 
         note_cap = QLabel("算出の説明")
         note_cap.setObjectName("formSectionCaption")
+        self._btn_forecast_detail = QPushButton("予測算出詳細")
+        self._btn_forecast_detail.setObjectName("secondaryButton")
+        self._btn_forecast_detail.setIcon(_make_forecast_detail_button_icon())
+        self._btn_forecast_detail.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_forecast_detail.setToolTip("予測の考え方を詳しく表示します。")
+        self._btn_forecast_detail.clicked.connect(self._on_open_forecast_details)
+        note_head = QHBoxLayout()
+        note_head.setContentsMargins(0, 0, 0, 0)
+        note_head.setSpacing(8)
+        note_head.addWidget(note_cap)
+        note_head.addStretch(1)
+        note_head.addWidget(self._btn_forecast_detail)
 
         self._forecast_model = DataFrameTableModel(pd.DataFrame())
         self._forecast_table = QTableView()
         self._forecast_table.setModel(self._forecast_model)
         configure_web_table_view(self._forecast_table)
+        self._forecast_table.horizontalHeader().setDefaultAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._forecast_table.horizontalHeader().setFixedHeight(44)
         self._forecast_model.modelReset.connect(
             lambda: rebalance_table_columns(self._forecast_table)
         )
@@ -505,15 +852,15 @@ class MainWindow(QMainWindow):
         lt = QLabel("実績一覧")
         lt.setObjectName("panelSectionTitle")
         ls = QLabel(
-            "検索で絞り込んだ集計結果です。下のボタンからこの一覧の Excel 出力と年別推移グラフが利用できます。"
+            "検索で絞り込んだ集計結果です。下のボタンから年別推移グラフと月別推移グラフが利用できます。"
         )
         ls.setObjectName("panelSectionSubtitle")
         ls.setWordWrap(True)
         actual_bar = QHBoxLayout()
         actual_bar.setSpacing(8)
         actual_bar.setContentsMargins(0, 0, 0, 0)
-        actual_bar.addWidget(btn_chart)
-        actual_bar.addWidget(btn_excel)
+        actual_bar.addWidget(btn_year_chart)
+        actual_bar.addWidget(btn_month_chart)
         actual_bar.addStretch(1)
         left_lay.addWidget(lt)
         left_lay.addWidget(ls)
@@ -529,14 +876,14 @@ class MainWindow(QMainWindow):
         rt = QLabel("年次予測")
         rt.setObjectName("panelSectionTitle")
         rs = QLabel(
-            "将来の年次納品数・金額の見積もりです。先に検索で明細を取得してから「予測を実行」してください。"
+            "実績・直線延長・重み付き回帰・外部要因予測を、1年1行で比較表示します。先に検索で明細を取得してから「予測を実行」してください。"
         )
         rs.setObjectName("panelSectionSubtitle")
         rs.setWordWrap(True)
         right_lay.addWidget(rt)
         right_lay.addWidget(rs)
         right_lay.addLayout(fc_row)
-        right_lay.addWidget(note_cap)
+        right_lay.addLayout(note_head)
         right_lay.addWidget(self._forecast_note)
         right_lay.addWidget(self._forecast_table, stretch=1)
 
@@ -848,10 +1195,16 @@ class MainWindow(QMainWindow):
         self, raw: pd.DataFrame, agg: pd.DataFrame, mode_name: str
     ) -> None:
         self._search_generation += 1
-        self._last_forecast_combined = None
-        self._last_forecast_note = ""
+        self._last_forecast_comparison = None
+        self._last_forecast_chart = None
+        self._last_forecast_summary_lines = []
+        self._last_forecast_graph_note = ""
         self._forecast_model.set_dataframe(pd.DataFrame())
-        self._forecast_note.clear()
+        self._forecast_note.setText(
+            "・直線延長: 合計実績を最小二乗で延長\n"
+            "・重み付き回帰: 直近年を強めに反映\n"
+            "・外部要因予測: IIP=鉱工業生産指数 / CI=景気動向指数"
+        )
         self._btn_forecast_run.setEnabled(raw is not None and not raw.empty)
         self._btn_forecast_chart.setEnabled(False)
         self._btn_forecast_excel.setEnabled(False)
@@ -938,6 +1291,26 @@ class MainWindow(QMainWindow):
         finally:
             self._busy_overlay.hide_overlay()
 
+    def _on_chart_monthly(self) -> None:
+        raw = self._last_raw_df
+        if raw is None or raw.empty:
+            show_information(self, "グラフ", "先に検索を実行してください。")
+            return
+        self._busy_overlay.show_message("グラフを準備中…")
+        QApplication.processEvents()
+        try:
+            monthly = delivery_service.monthly_totals_from_raw_deliveries(raw)
+            cust_lbl = self._customer_display_label(self._customer_combo.currentText())
+            prod_lbl = self._product_combo.currentText().strip() or "全品番"
+            period_lbl = self._pending_search_period_note or "—"
+            sub = f"顧客: {cust_lbl}  /  品番: {prod_lbl}  /  対象期間: {period_lbl}"
+            dlg = ChartMonthlyDialog(
+                self, monthly, title="月別推移（検索結果）", subtitle=sub
+            )
+            dlg.show()
+        finally:
+            self._busy_overlay.hide_overlay()
+
     def _on_forecast_run(self) -> None:
         if self._forecast_worker is not None and self._forecast_worker.isRunning():
             show_information(
@@ -964,54 +1337,39 @@ class MainWindow(QMainWindow):
         self._btn_forecast_run.setEnabled(False)
         self._busy_overlay.show_message(
             "予測を計算中…\n"
-            "検索で取得した明細を年ごとに集計し、トレンドから将来年を算出しています。"
+            "検索明細を年次集計し、3つの予測モデルを算出しています。"
         )
         QApplication.processEvents()
 
         worker = YearlyForecastFromRawWorker(raw, n_years, parent=self)
         self._forecast_worker = worker
-        worker.forecast_done.connect(
-            lambda df, note: self._on_forecast_worker_done(df, note, run_gen)
-        )
+        worker.forecast_done.connect(lambda payload: self._on_forecast_worker_done(payload, run_gen))
         worker.forecast_failed.connect(
             lambda msg: self._on_forecast_worker_failed(msg, run_gen)
         )
         worker.finished.connect(self._on_forecast_worker_thread_finished)
         worker.start()
 
-    def _on_forecast_worker_done(
-        self, combined: pd.DataFrame, note: str, run_gen: int
-    ) -> None:
+    def _on_forecast_worker_done(self, payload: dict, run_gen: int) -> None:
         if run_gen != self._search_generation:
             return
-        combined = combined.copy()
-        for c in ("納品数", "金額"):
-            if c in combined.columns:
-                combined[c] = pd.to_numeric(
-                    combined[c], errors="coerce"
-                ).round(0)
-        self._last_forecast_combined = combined
-        self._last_forecast_note = note
-        self._forecast_model.set_dataframe(combined.copy())
+        comparison_df = payload.get("comparison_df", pd.DataFrame()).copy()
+        chart_df = payload.get("chart_df", pd.DataFrame()).copy()
+        summary_lines = list(payload.get("summary_lines", []))
+        graph_note = str(payload.get("graph_note", "") or "")
+        status_summary = str(payload.get("status_summary", "") or "")
+
+        self._last_forecast_comparison = comparison_df
+        self._last_forecast_chart = chart_df
+        self._last_forecast_summary_lines = summary_lines
+        self._last_forecast_graph_note = graph_note
+        self._forecast_model.set_dataframe(comparison_df)
         rebalance_table_columns(self._forecast_table)
-        cust_lbl = self._customer_display_label(self._customer_combo.currentText())
-        prod_lbl = self._product_combo.currentText().strip() or "全品番"
-        period_lbl = self._pending_search_period_note or "—"
-        actual = combined[combined["種別"] == "実績"].copy()
-        year_count = len(actual.index)
-        if year_count > 0:
-            start_year = int(actual["年"].min())
-            end_year = int(actual["年"].max())
-            year_range_text = f"{start_year}〜{end_year}年の実績 {year_count} 年分"
-        else:
-            year_range_text = "実績年データ"
-        self._forecast_note.setPlainText(
-            f"{note}\n"
-            f"・元データ: 検索結果を年ごとに合計した {year_range_text}\n"
-            f"・考え方: 直近1年ではなく、対象期間全体の増減傾向で見積もります。\n"
-            f"・補足: 実績が1年分だけならその値を使い、0未満は0に補正します。\n"
-            f"・検索条件: 顧客={cust_lbl} / 品番={prod_lbl} / 期間={period_lbl}"
-        )
+        note_lines = summary_lines[:4]
+        if status_summary and len(note_lines) < 4:
+            note_lines.append(f"外部指標: {status_summary}")
+        self._forecast_note.setText("\n".join(f"・{line}" for line in note_lines[:4]))
+        self._forecast_note.setToolTip("\n".join(f"・{line}" for line in summary_lines))
         self._btn_forecast_chart.setEnabled(True)
         self._btn_forecast_excel.setEnabled(True)
 
@@ -1025,33 +1383,37 @@ class MainWindow(QMainWindow):
         self._btn_forecast_run.setEnabled(True)
         self._forecast_worker = None
 
+    def _forecast_chart_subtitle(self) -> str:
+        cust_lbl = self._customer_display_label(self._customer_combo.currentText())
+        prod_lbl = self._product_combo.currentText().strip() or "全品番"
+        period_lbl = self._pending_search_period_note or "—"
+        base = f"顧客: {cust_lbl}  /  品番: {prod_lbl}  /  対象期間: {period_lbl}"
+        return f"{base}\n{self._last_forecast_graph_note}" if self._last_forecast_graph_note else base
+
+    def _on_open_forecast_details(self) -> None:
+        dlg = ForecastExplanationDialog(self)
+        dlg.exec()
+
     def _on_forecast_chart(self) -> None:
-        df = self._last_forecast_combined
+        df = self._last_forecast_chart
         if df is None or df.empty:
             show_information(self, "グラフ", "先に「予測を実行」を行ってください。")
             return
         self._busy_overlay.show_message("グラフを準備中…")
         QApplication.processEvents()
         try:
-            cust_lbl = self._customer_display_label(self._customer_combo.currentText())
-            prod_lbl = self._product_combo.currentText().strip() or "全品番"
-            period_lbl = self._pending_search_period_note or "—"
-            sub = (
-                f"顧客: {cust_lbl}  /  品番: {prod_lbl}  /  対象期間: {period_lbl}\n"
-                f"{self._last_forecast_note}"
-            )
             dlg = ChartYearlyDialog(
                 self,
                 df,
-                title="年別推移（実績と予測）",
-                subtitle=sub,
+                title="年別推移（実績・直線延長・重み付き回帰・外部要因）",
+                subtitle=self._forecast_chart_subtitle(),
             )
             dlg.show()
         finally:
             self._busy_overlay.hide_overlay()
 
     def _on_forecast_excel(self) -> None:
-        df = self._last_forecast_combined
+        df = self._last_forecast_comparison
         if df is None or df.empty:
             show_information(self, "Excel", "先に「予測を実行」を行ってください。")
             return
@@ -1066,22 +1428,11 @@ class MainWindow(QMainWindow):
         self._busy_overlay.show_message("Excel ファイルを書き出し中…")
         QApplication.processEvents()
         try:
-            act = df[df["種別"] == "実績"].drop(columns=["種別"], errors="ignore")
-            pred = df[df["種別"] == "予測"].drop(columns=["種別"], errors="ignore")
-            cust_lbl = self._customer_display_label(self._customer_combo.currentText())
-            prod_lbl = self._product_combo.currentText().strip() or "全品番"
-            period_lbl = self._pending_search_period_note or "—"
-            export_service.export_two_sheets(
+            export_service.export_forecast_workbook(
                 path,
-                act,
-                pred,
-                meta=self._last_forecast_note,
-                yearly_chart_df=df,
-                chart_title="年別推移（実績と予測）",
-                chart_subtitle=(
-                    f"顧客: {cust_lbl} / 品番: {prod_lbl} / 対象期間: {period_lbl}\n"
-                    f"{self._last_forecast_note}"
-                ),
+                df,
+                meta_lines=self._last_forecast_summary_lines,
+                chart_subtitle=self._forecast_chart_subtitle(),
             )
             self._busy_overlay.hide_overlay()
             show_information(self, "Excel", "保存しました。")

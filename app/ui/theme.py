@@ -80,7 +80,8 @@ QSplitter#mainSplit::handle {
 QSplitter#mainSplit::handle:hover {
     background-color: #cbd5e1;
 }
-QTextEdit#forecastNoteBox {
+QTextEdit#forecastNoteBox,
+QLabel#forecastNoteBox {
     background-color: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
@@ -110,6 +111,41 @@ QLabel#statusLabel {
     color: #3c3c43;
     font-size: 12px;
     padding: 6px 4px;
+}
+QDialog#forecastExplanationDialog {
+    background-color: #f1f5f9;
+}
+QLabel#forecastExplanationTitle {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+    padding: 0 0 2px 0;
+}
+QScrollArea#forecastExplanationScroll {
+    background-color: transparent;
+    border: none;
+}
+QScrollArea#forecastExplanationScroll > QWidget > QWidget {
+    background-color: transparent;
+}
+QWidget#forecastExplanationContent {
+    background-color: transparent;
+}
+QFrame#forecastExplanationCard {
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+}
+QLabel#forecastExplanationCardTitle {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+    padding: 0 0 2px 0;
+}
+QLabel#forecastExplanationCardBody {
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.55;
 }
 QPushButton {
     background-color: #2563eb;

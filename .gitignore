@@ -1,40 +1,36 @@
-# --- Python ---
+# =============================================================================
+# Customer Delivery Analytics（PySide6 / PyInstaller / Windows 業務PC 想定）
+# =============================================================================
+
+# --- Python 実行時・キャッシュ ---
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
+
+# --- パッケージング（setuptools 等）---
 *.egg-info/
-.installed.cfg
 *.egg
-MANIFEST
-pip-log.txt
-pip-delete-this-directory.txt
+.eggs/
+pip-wheel-metadata/
+
+# --- PyInstaller（build_exe.ps1）---
+# dist/・build/ に exe 一式が出力される。.spec はコマンドライン実行で都度生成されがちなため除外。
+build/
+dist/
+*.spec
 
 # --- 仮想環境 ---
 .venv/
 venv/
 ENV/
 env/
+
+# --- 環境変数・ローカル秘密（コミット禁止）---
 .env
 .env.*
 !.env.example
-
-# --- PyInstaller ---
-# build/・dist/ は上記 Python 節で除外済み。再現用に *.spec を Git 管理する場合はそのまま追加可。
 
 # --- テスト・カバレッジ ---
 .pytest_cache/
@@ -63,7 +59,7 @@ dmypy.json
 *.swo
 *~
 
-# --- OS ---
+# --- OS（Windows 中心）---
 Thumbs.db
 ehthumbs.db
 Desktop.ini
@@ -76,5 +72,9 @@ $RECYCLE.BIN/
 *.temp
 *.bak
 
-# --- Excel 出力の誤コミット防止（必要ならコメントアウト） ---
+# --- Excel：エクスポート・一時保存の誤コミット防止 ---
+# Office が開いている間に作られるロックファイル（~$ で始まる）
+~$*.xlsx
+tmp_*.xlsx
+# 必要なら *.xlsx も有効化（テンプレート等をリポジトリ管理する場合はコメントアウト）
 # *.xlsx

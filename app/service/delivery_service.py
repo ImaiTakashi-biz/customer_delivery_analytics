@@ -65,7 +65,7 @@ def fetch_customer_names(conn) -> List[str]:
 def fetch_customer_code_name_pairs(conn) -> list[tuple[str, str]]:
     """客先マスタから顧客コードと客先名の一覧を取得する。"""
     sql = """
-    SELECT
+    SELECT DISTINCT
         Trim(k.[コード]) AS 顧客コード,
         Trim(k.[客先]) AS 顧客名
     FROM [t_客先マスタ] AS k
@@ -76,19 +76,12 @@ def fetch_customer_code_name_pairs(conn) -> list[tuple[str, str]]:
     ORDER BY Trim(k.[コード]), Trim(k.[客先])
     """
     rows = access_connector.fetch_all_dicts(conn, sql)
-    out: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for row in rows:
-        code = str(row.get("顧客コード") or "").strip()
-        name = str(row.get("顧客名") or "").strip()
-        if not code or not name:
-            continue
-        key = (code, name)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(key)
-    return out
+    return [
+        (str(row.get("顧客コード") or "").strip(), str(row.get("顧客名") or "").strip())
+        for row in rows
+        if str(row.get("顧客コード") or "").strip()
+        and str(row.get("顧客名") or "").strip()
+    ]
 
 
 def fetch_distinct_hinban(conn) -> List[str]:
@@ -182,18 +175,17 @@ def aggregate_for_list(df: pd.DataFrame, mode: AggregateMode) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=LIST_COLUMNS)
 
-    work = df.copy()
-    work["年"] = work["納入日"].dt.year
-    work["月"] = work["納入日"].dt.month
+    years = df["納入日"].dt.year.rename("年")
+    months = df["納入日"].dt.month.rename("月")
 
     if mode == AggregateMode.BY_CUSTOMER:
-        g = work.groupby(["顧客", "年", "月"], as_index=False).agg(
+        g = df.groupby([df["顧客"], years, months], as_index=False, sort=True).agg(
             納品数=("納品数", "sum"),
             金額=("金額", "sum"),
         )
         g.insert(1, "品番", "*")
     elif mode == AggregateMode.BY_PRODUCT:
-        g = work.groupby(["品番", "年", "月"], as_index=False).agg(
+        g = df.groupby([df["品番"], years, months], as_index=False, sort=True).agg(
             納品数=("納品数", "sum"),
             金額=("金額", "sum"),
         )
@@ -203,7 +195,11 @@ def aggregate_for_list(df: pd.DataFrame, mode: AggregateMode) -> pd.DataFrame:
         cols = ["顧客", "品番", "年", "月", "納品数", "金額"]
         g = g[cols]
     else:  # BY_CUSTOMER_PRODUCT
-        g = work.groupby(["顧客", "品番", "年", "月"], as_index=False).agg(
+        g = df.groupby(
+            [df["顧客"], df["品番"], years, months],
+            as_index=False,
+            sort=True,
+        ).agg(
             納品数=("納品数", "sum"),
             金額=("金額", "sum"),
         )
@@ -225,14 +221,31 @@ def yearly_totals_from_raw_deliveries(df: pd.DataFrame) -> pd.DataFrame:
     needed = {"納入日", "納品数", "金額"}
     if not needed.issubset(df.columns):
         return pd.DataFrame(columns=["年", "納品数", "金額"])
-    work = df.copy()
-    work["年"] = work["納入日"].dt.year
-    y = work.groupby("年", as_index=False).agg(
+    years = df["納入日"].dt.year.rename("年")
+    y = df.groupby(years, as_index=False, sort=True).agg(
         納品数=("納品数", "sum"),
         金額=("金額", "sum"),
     )
     y["年"] = y["年"].astype(int)
     return y.sort_values("年").reset_index(drop=True)
+
+
+def monthly_totals_from_raw_deliveries(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    検索で取得した明細 DataFrame から月次合計を作る。
+    列: 年月, 納品数, 金額。年月は YYYY-MM 文字列。
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["年月", "納品数", "金額"])
+    needed = {"納入日", "納品数", "金額"}
+    if not needed.issubset(df.columns):
+        return pd.DataFrame(columns=["年月", "納品数", "金額"])
+    year_month = df["納入日"].dt.strftime("%Y-%m").rename("年月")
+    m = df.groupby(year_month, as_index=False, sort=True).agg(
+        納品数=("納品数", "sum"),
+        金額=("金額", "sum"),
+    )
+    return m.sort_values("年月").reset_index(drop=True)
 
 
 def yearly_totals_for_customer(
@@ -244,14 +257,8 @@ def yearly_totals_for_customer(
 ) -> pd.DataFrame:
     """指定顧客の年次集計（予測・グラフ用）。列: 年, 納品数, 金額。日付省略時は全期間。"""
     df = fetch_deliveries(conn, date_from, date_to, customer, product_code_filter)
-    if df.empty:
+    y = yearly_totals_from_raw_deliveries(df)
+    if y.empty:
         return pd.DataFrame(columns=["年", "納品数", "金額", "種別"])
-    work = df.copy()
-    work["年"] = work["納入日"].dt.year
-    y = work.groupby("年", as_index=False).agg(
-        納品数=("納品数", "sum"),
-        金額=("金額", "sum"),
-    )
     y["種別"] = "実績"
-    y["年"] = y["年"].astype(int)
     return y.sort_values("年").reset_index(drop=True)
