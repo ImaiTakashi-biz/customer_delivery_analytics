@@ -18,25 +18,11 @@ _root_str = str(_project_root)
 if _root_str not in sys.path:
     sys.path.insert(0, _root_str)
 
-# Shiboken が six.moves をフックした後に pandas→dateutil→six を通すと環境によって例外になるため、
-# 先に pandas を完了 import してから Qt を読み込む。
-import pandas as pd  # noqa: F401
-
-# 年別グラフで遅延 import される matplotlib→dateutil.rrule→six.moves が、
-# Qt 読込後だと Shiboken の inspect 連携と衝突する（Python 3.12 で AttributeError 等）。
-# Qt より前に dateutil.rrule 経路を解決しておく。
-import matplotlib.dates  # noqa: F401
-
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
-
-from app.config import settings
-from app.ui.message_dialog import show_critical
-from app.ui.main_window import MainWindow
-from app.ui.theme import apply_app_theme, configure_matplotlib_light
+# MessageBox 用（settings より前に参照するため app.config に依存しない）
+_APP_DISPLAY_NAME = "顧客別納入分析システム"
 
 
-def _report_fatal_startup_error(exc: BaseException, q_app: QApplication | None) -> None:
+def _report_fatal_startup_error(exc: BaseException, q_app: object | None) -> None:
     """コンソール非表示起動でも内容が分かるよう stderr 出力と、可能ならダイアログを出す。"""
     tb = traceback.format_exc()
     try:
@@ -48,6 +34,8 @@ def _report_fatal_startup_error(exc: BaseException, q_app: QApplication | None) 
     text = text[:3500]
     try:
         if q_app is not None:
+            from app.ui.message_dialog import show_critical
+
             show_critical(None, "起動エラー", text)
         elif sys.platform == "win32":
             import ctypes
@@ -55,7 +43,7 @@ def _report_fatal_startup_error(exc: BaseException, q_app: QApplication | None) 
             ctypes.windll.user32.MessageBoxW(
                 0,
                 text,
-                f"{settings.APP_DISPLAY_NAME} - 起動エラー",
+                f"{_APP_DISPLAY_NAME} - 起動エラー",
                 0x00000010,  # MB_ICONERROR
             )
     except Exception:
@@ -63,8 +51,20 @@ def _report_fatal_startup_error(exc: BaseException, q_app: QApplication | None) 
 
 
 def main() -> int:
-    q_app: QApplication | None = None
+    q_app: object | None = None
     try:
+        # Keep matplotlib.dates imported before Qt in frozen builds.
+        # 年別グラフで遅延 import される matplotlib→dateutil.rrule→six.moves が、
+        # Qt 読込後だと Shiboken の inspect 連携と衝突する（Python 3.12 で AttributeError 等）。
+        # Qt より前に dateutil.rrule 経路を解決しておく。
+        import matplotlib.dates  # noqa: F401
+
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import QApplication
+
+        from app.config import settings
+        from app.ui.theme import apply_app_theme, configure_matplotlib_light
+
         if sys.platform == "win32":
             try:
                 import ctypes
@@ -84,6 +84,10 @@ def main() -> int:
         apply_app_theme(q_app)
         configure_matplotlib_light()
 
+        # pyodbc 等のネイティブ拡張は QApplication 初期化後に読み込む。
+        # これにより DLL 不整合時も Qt ダイアログで内容を表示しやすくする。
+        from app.ui.main_window import MainWindow
+
         window = MainWindow()
         window.setWindowTitle(settings.WINDOW_TITLE)
         if icon_path.exists():
@@ -98,4 +102,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
+    multiprocessing.freeze_support()
     raise SystemExit(main())

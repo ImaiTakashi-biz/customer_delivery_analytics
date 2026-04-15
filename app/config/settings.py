@@ -10,8 +10,8 @@ EXE_BASENAME = "顧客別納入分析システム"
 APP_ICON_PNG = ("docs", "icon.png")
 APP_ICON_ICO = ("docs", "icon.ico")
 
-# --- Access データベース（参照専用・UNC） ---
-# 仕様書・依頼どおりの既定パス（環境変数 CDA_ACCESS_DB で上書き可能）
+# --- Access 繝・・繧ｿ繝吶・繧ｹ・亥盾辣ｧ蟆ら畑繝ｻUNC・・---
+# 既定は .accdb の実ファイルを指す UNC。必要なら環境変数 CDA_ACCESS_DB で上書き。
 DEFAULT_ACCESS_DB_PATH = r"\\192.168.1.200\共有\生産管理課\受注データApp.accdb"
 ENV_ACCESS_DB = "CDA_ACCESS_DB"
 

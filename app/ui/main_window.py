@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-# pandas は dateutil 経由で import フックと干渉しうるため、Qt を先に読み込む
+# Qt を先に読み込み、重い依存は必要時に遅延 import する
 from PySide6.QtCore import QDate, QPoint, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygon
 from PySide6.QtWidgets import (
@@ -29,14 +29,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import pandas as pd
-
 from app.config import settings
 from app.db import access_connector
-from app.service import delivery_service, export_service
 from app.ui.busy_overlay import BusyOverlay
 from app.ui.message_dialog import show_critical, show_information, show_warning
-from app.ui.search_worker import DeliverySearchWorker, YearlyForecastFromRawWorker
 from app.ui.table_model import DataFrameTableModel
 from app.ui.web_inputs import ClickableDateEdit, ClickToOpenComboBox, FilterableComboBox
 from app.ui.web_table_view import configure_web_table_view, rebalance_table_columns
@@ -183,6 +179,20 @@ def _make_search_button_icon() -> QIcon:
     painter.drawLine(9, 9, 12, 12)
     painter.end()
     return QIcon(pixmap)
+
+
+AGGREGATE_MODE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("顧客別", "BY_CUSTOMER"),
+    ("品番別", "BY_PRODUCT"),
+    ("顧客別 + 品番別", "BY_CUSTOMER_PRODUCT"),
+)
+AGGREGATE_MODE_LABELS = {name: label for label, name in AGGREGATE_MODE_CHOICES}
+
+
+def _new_dataframe(*args, **kwargs):
+    from pandas import DataFrame
+
+    return DataFrame(*args, **kwargs)
 
 
 def _make_forecast_run_button_icon() -> QIcon:
@@ -554,12 +564,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(settings.WINDOW_TITLE)
 
-        self._last_list_df = pd.DataFrame()
-        self._last_raw_df: Optional[pd.DataFrame] = None
-        self._search_worker: Optional[DeliverySearchWorker] = None
-        self._forecast_worker: Optional[YearlyForecastFromRawWorker] = None
-        self._last_forecast_comparison: Optional[pd.DataFrame] = None
-        self._last_forecast_chart: Optional[pd.DataFrame] = None
+        self._last_list_df = None
+        self._last_raw_df: Optional[Any] = None
+        self._search_worker = None
+        self._forecast_worker = None
+        self._last_forecast_comparison: Optional[Any] = None
+        self._last_forecast_chart: Optional[Any] = None
         self._last_forecast_summary_lines: list[str] = []
         self._last_forecast_graph_note: str = ""
         self._pending_search_period_note: str = ""
@@ -653,8 +663,8 @@ class MainWindow(QMainWindow):
 
         self._agg_combo = ClickToOpenComboBox(max_visible=8)
         # str 列挙体を userData に渡すと Qt が文字列化し currentData() が Enum にならないため、名前で保持する
-        for m in delivery_service.AggregateMode:
-            self._agg_combo.addItem(m.value, m.name)
+        for label, name in AGGREGATE_MODE_CHOICES:
+            self._agg_combo.addItem(label, name)
         self._agg_combo.setMinimumWidth(120)
         self._agg_combo.setMaximumWidth(220)
         self._agg_combo.setSizePolicy(
@@ -826,7 +836,7 @@ class MainWindow(QMainWindow):
         note_head.addStretch(1)
         note_head.addWidget(self._btn_forecast_detail)
 
-        self._forecast_model = DataFrameTableModel(pd.DataFrame())
+        self._forecast_model = DataFrameTableModel()
         self._forecast_table = QTableView()
         self._forecast_table.setModel(self._forecast_model)
         configure_web_table_view(self._forecast_table)
@@ -905,14 +915,16 @@ class MainWindow(QMainWindow):
         # イベントループ開始後に読み込み、画面は必ず先に出す。
         QTimer.singleShot(0, self._load_customers)
 
-    def _current_aggregate_mode(self) -> delivery_service.AggregateMode:
+    def _current_aggregate_mode(self) -> str:
         """集計単位コンボから AggregateMode を取得（Qt の userData 変換差異を吸収）。"""
         key = self._agg_combo.currentData()
-        if isinstance(key, str) and key in delivery_service.AggregateMode.__members__:
-            return delivery_service.AggregateMode[key]
-        if isinstance(key, delivery_service.AggregateMode):
+        if isinstance(key, str) and key in AGGREGATE_MODE_LABELS:
             return key
-        return delivery_service.AggregateMode(self._agg_combo.currentText())
+        return str(key or "BY_CUSTOMER")
+
+    @staticmethod
+    def _aggregate_mode_label(mode_name: str) -> str:
+        return AGGREGATE_MODE_LABELS.get(mode_name, mode_name)
 
     @staticmethod
     def _has_customer_value(text: str) -> bool:
@@ -970,13 +982,13 @@ class MainWindow(QMainWindow):
 
     def _on_aggregate_mode_changed(self) -> None:
         mode = self._current_aggregate_mode()
-        if mode == delivery_service.AggregateMode.BY_CUSTOMER:
+        if mode == "BY_CUSTOMER":
             self._set_customer_input_enabled(True, self._customer_placeholder)
             self._set_product_input_enabled(False, self._product_disabled_placeholder)
             self._clear_combo_text(self._product_combo)
             self._product_combo.set_source_items(self._all_hinbans)
             self._last_hinban_filter_customer = None
-        elif mode == delivery_service.AggregateMode.BY_PRODUCT:
+        elif mode == "BY_PRODUCT":
             self._set_customer_input_enabled(False, self._customer_disabled_placeholder)
             self._set_product_input_enabled(True, self._product_placeholder)
             self._clear_combo_text(self._customer_combo)
@@ -1002,9 +1014,9 @@ class MainWindow(QMainWindow):
         has_product = self._has_product_value(self._product_combo.currentText())
         has_valid_period = self._date_from.date() <= self._date_to.date()
 
-        if mode == delivery_service.AggregateMode.BY_CUSTOMER:
+        if mode == "BY_CUSTOMER":
             ready = has_customer
-        elif mode == delivery_service.AggregateMode.BY_PRODUCT:
+        elif mode == "BY_PRODUCT":
             ready = has_product
         else:
             ready = has_customer and has_product
@@ -1033,9 +1045,9 @@ class MainWindow(QMainWindow):
         )
         prod = self._sanitize_filename_part(self._product_combo.currentText())
 
-        if mode == delivery_service.AggregateMode.BY_CUSTOMER:
+        if mode == "BY_CUSTOMER":
             subject = cust or "全顧客"
-        elif mode == delivery_service.AggregateMode.BY_PRODUCT:
+        elif mode == "BY_PRODUCT":
             subject = prod or "全品番"
         else:
             subject = "_".join(part for part in (cust, prod) if part) or "検索結果"
@@ -1050,6 +1062,7 @@ class MainWindow(QMainWindow):
             return fn(conn)
 
     def _load_customers(self) -> None:
+        from app.service import delivery_service
         self._busy_overlay.show_message("顧客一覧を読み込み中…")
         QApplication.processEvents()
         try:
@@ -1097,11 +1110,12 @@ class MainWindow(QMainWindow):
         )
 
     def _on_customer_changed_for_hinban_list(self) -> None:
+        from app.service import delivery_service
         """顧客が確定したタイミングで品番候補をその顧客向けに絞り込む（DB と同じ結合条件）。"""
         if not self._hinban_lists_ready:
             self._refresh_search_button_state()
             return
-        if self._current_aggregate_mode() != delivery_service.AggregateMode.BY_CUSTOMER_PRODUCT:
+        if self._current_aggregate_mode() != "BY_CUSTOMER_PRODUCT":
             self._refresh_search_button_state()
             return
         cust = self._resolve_customer_name(self._customer_combo.currentText())
@@ -1139,6 +1153,9 @@ class MainWindow(QMainWindow):
         self._refresh_search_button_state()
 
     def _on_search(self) -> None:
+        from app.service import delivery_service
+        from app.ui.search_worker import DeliverySearchWorker
+
         if self._search_worker is not None and self._search_worker.isRunning():
             return
 
@@ -1152,9 +1169,9 @@ class MainWindow(QMainWindow):
         customer = self._resolve_customer_name(customer)
         product = self._product_combo.currentText().strip() or None
         mode = self._current_aggregate_mode()
-        if mode == delivery_service.AggregateMode.BY_CUSTOMER:
+        if mode == "BY_CUSTOMER":
             product = None
-        elif mode == delivery_service.AggregateMode.BY_PRODUCT:
+        elif mode == "BY_PRODUCT":
             customer = None
 
         self._pending_search_period_note = (
@@ -1182,7 +1199,7 @@ class MainWindow(QMainWindow):
             df_to,
             customer,
             product,
-            mode.name,
+            mode,
             parent=self,
         )
         self._search_worker = worker
@@ -1194,12 +1211,13 @@ class MainWindow(QMainWindow):
     def _on_search_worker_done(
         self, raw: pd.DataFrame, agg: pd.DataFrame, mode_name: str
     ) -> None:
+        mode_label = self._aggregate_mode_label(mode_name)
         self._search_generation += 1
         self._last_forecast_comparison = None
         self._last_forecast_chart = None
         self._last_forecast_summary_lines = []
         self._last_forecast_graph_note = ""
-        self._forecast_model.set_dataframe(pd.DataFrame())
+        self._forecast_model.set_dataframe(_new_dataframe())
         self._forecast_note.setText(
             "・直線延長: 合計実績を最小二乗で延長\n"
             "・重み付き回帰: 直近年を強めに反映\n"
@@ -1209,12 +1227,11 @@ class MainWindow(QMainWindow):
         self._btn_forecast_chart.setEnabled(False)
         self._btn_forecast_excel.setEnabled(False)
 
-        mode = delivery_service.AggregateMode[mode_name]
         self._last_raw_df = raw
         self._last_list_df = agg
         self._model.set_dataframe(agg)
         self._status.setText(
-            f"取得明細: {len(raw)} 行 / 表示行: {len(agg)} 行（集計単位: {mode.value}）\n"
+            f"取得明細: {len(raw)} 行 / 表示行: {len(agg)} 行（集計単位: {mode_label}）\n"
             f"対象期間: {self._pending_search_period_note}"
         )
 
@@ -1233,6 +1250,8 @@ class MainWindow(QMainWindow):
         self._refresh_search_button_state()
 
     def _on_export_list(self) -> None:
+        from app.service import delivery_service, export_service
+
         df = self._model.dataframe()
         if df.empty:
             show_information(self, "Excel", "出力する一覧がありません。先に検索してください。")
@@ -1270,6 +1289,8 @@ class MainWindow(QMainWindow):
             self._busy_overlay.hide_overlay()
 
     def _on_chart_list(self) -> None:
+        from app.service import delivery_service
+
         raw = self._last_raw_df
         if raw is None or raw.empty:
             show_information(self, "グラフ", "先に検索を実行してください。")
@@ -1292,6 +1313,8 @@ class MainWindow(QMainWindow):
             self._busy_overlay.hide_overlay()
 
     def _on_chart_monthly(self) -> None:
+        from app.service import delivery_service
+
         raw = self._last_raw_df
         if raw is None or raw.empty:
             show_information(self, "グラフ", "先に検索を実行してください。")
@@ -1312,6 +1335,8 @@ class MainWindow(QMainWindow):
             self._busy_overlay.hide_overlay()
 
     def _on_forecast_run(self) -> None:
+        from app.service import delivery_service
+        from app.ui.search_worker import YearlyForecastFromRawWorker
         if self._forecast_worker is not None and self._forecast_worker.isRunning():
             show_information(
                 self, "予測", "予測計算の実行中です。完了を待ってから再度お試しください。"
@@ -1353,8 +1378,8 @@ class MainWindow(QMainWindow):
     def _on_forecast_worker_done(self, payload: dict, run_gen: int) -> None:
         if run_gen != self._search_generation:
             return
-        comparison_df = payload.get("comparison_df", pd.DataFrame()).copy()
-        chart_df = payload.get("chart_df", pd.DataFrame()).copy()
+        comparison_df = payload.get("comparison_df", _new_dataframe()).copy()
+        chart_df = payload.get("chart_df", _new_dataframe()).copy()
         summary_lines = list(payload.get("summary_lines", []))
         graph_note = str(payload.get("graph_note", "") or "")
         status_summary = str(payload.get("status_summary", "") or "")
@@ -1413,6 +1438,8 @@ class MainWindow(QMainWindow):
             self._busy_overlay.hide_overlay()
 
     def _on_forecast_excel(self) -> None:
+        from app.service import export_service
+
         df = self._last_forecast_comparison
         if df is None or df.empty:
             show_information(self, "Excel", "先に「予測を実行」を行ってください。")

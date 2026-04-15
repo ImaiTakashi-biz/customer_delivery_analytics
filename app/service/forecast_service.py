@@ -9,10 +9,8 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-try:
-    from sklearn.linear_model import LinearRegression
-except Exception:  # noqa: BLE001
-    LinearRegression = None
+# scikit-learn は PyInstaller 同梱が肥大化するため使わない。
+# 加重最小二乗は numpy.linalg.lstsq（sqrt(sample_weight) で重み付け）で sklearn と同等。
 
 
 @dataclass(frozen=True)
@@ -289,16 +287,6 @@ def _fit_linear_model(
             intercept=float(values[0]),
             feature_names=tuple(feature_names),
             algorithm="flat",
-        )
-
-    if LinearRegression is not None:
-        model = LinearRegression()
-        model.fit(features, values, sample_weight=weights)
-        return ForecastModel(
-            coefficients=np.asarray(model.coef_, dtype=float),
-            intercept=float(model.intercept_),
-            feature_names=tuple(feature_names),
-            algorithm="sklearn",
         )
 
     weighted_features = np.column_stack([features, np.ones(len(values), dtype=float)])

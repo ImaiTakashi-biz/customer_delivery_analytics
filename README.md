@@ -1,9 +1,9 @@
-﻿# 顧客別納入分析システム（customer_delivery_analytics）
+# 顧客別納入分析システム（customer_delivery_analytics）
 
 営業・実務向けの **Windows デスクトップアプリ** です。Access（`.accdb`）の納入実績を **参照専用** で検索・集計し、**年次予測**・**グラフ**・**Excel 出力**まで一画面で扱えます。
 
 - **起動時に全件ロードはしません**（検索時に SQL で絞り込み取得）。
-- **exe は単一ファイル配布**可能（PyInstaller onefile）。同梱リソースは実行時に一時展開されます。
+- **exe は既定で onedir 配布**です。起動を速くし、`exe` 本体のサイズを抑えています。
 
 ## 仕様書
 
@@ -25,10 +25,10 @@
 - **Python** 3.10 以上推奨（開発・ビルドは 3.12 で確認）
 - **GUI**: PySide6  
 - **DB 接続**: pyodbc（Access ODBC 必須）  
-- **集計・予測**: pandas / scikit-learn（線形回帰）  
+- **集計・予測**: pandas / numpy（加重最小二乗・線形延長）  
 - **グラフ**: matplotlib（Qt バックエンド）  
 - **Excel**: openpyxl  
-- **パッケージング**: PyInstaller 6 系（`--paths` / onefile）
+- **パッケージング**: PyInstaller 6 系（`--paths` / onedir 既定、onefile は任意）
 
 ## 実行手順（開発時）
 
@@ -42,7 +42,7 @@ python -m app.main
 ```
 
 - **Access のパス**を変える場合: 環境変数 `CDA_ACCESS_DB` に `.accdb` のフルパスを設定。
-- 既定パスは `app/config/settings.py` の `DEFAULT_ACCESS_DB_PATH`（UNC）。社内環境に合わせて変更してください。
+- 既定パスは `app/config/settings.py` の `DEFAULT_ACCESS_DB_PATH`（UNC の `.accdb` 実ファイル）です。社内環境に合わせて変更してください。
 
 ## exe 化・配布
 
@@ -53,10 +53,11 @@ pip install pyinstaller
 
 | 項目 | 説明 |
 |------|------|
-| 出力 | `dist\顧客別納入分析システム.exe`（**単一 exe**。横に DLL 等は不要） |
-| フォルダ版 | デバッグ用: `$env:CDA_FOLDER = "1"; .\build_exe.ps1` |
+| 出力 | `dist\顧客別納入分析システム\顧客別納入分析システム.exe`（**既定**。起動が速く、`exe` が小さい） |
+| 単一 exe | 必要な場合のみ: `$env:CDA_ONEFILE = "1"; .\build_exe.ps1` |
 | スクリプト文字コード | `build_exe.ps1` は **UTF-8（BOM 付き）** 推奨（日本語 exe 名の文字化け防止） |
-| ランタイムフック | リポジトリ直下の `pyi_rth_cda_dateutil.py` を `--runtime-hook` で同梱（pandas / dateutil / six と PySide6 の frozen 時衝突回避） |
+| ランタイムフック | リポジトリ直下の `pyi_rth_cda_dateutil.py` を `--runtime-hook` で同梱（`dateutil` / `six` と PySide6 の frozen 時衝突回避） |
+| 同梱の最適化 | `scipy` / `sklearn` / `pytest` / `pyarrow` を除外（exe 軽量化）。主要 **MSVC ランタイム DLL**（`vcruntime140` 等）を明示同梱 |
 
 ### 配布先 PC で必要なもの
 
@@ -66,7 +67,8 @@ pip install pyinstaller
 
 ## 補足（import 順・frozen）
 
-- `app/main.py` では、PySide6（Shiboken）と **pandas / matplotlib → python-dateutil → six** の import が frozen 時に衝突しやすいため、**pandas と matplotlib の日付系を Qt より先に import** しています。
+- `app/main.py` では、PySide6（Shiboken）と `matplotlib.dates` が frozen 時に衝突しやすいため、**日付系の import を Qt より先に実行**しています。
+- `app/ui/main_window.py` は、`pandas`・検索ワーカー・集計サービスを遅延 import するようにして、初期表示を軽くしています。
 - exe ではさらに **`pyi_rth_cda_dateutil.py`** で `dateutil` 関連を先行ロードします。
 
 ## フォルダ構成（抜粋）

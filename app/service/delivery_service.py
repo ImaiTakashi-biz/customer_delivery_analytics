@@ -36,7 +36,6 @@ SELECT
     Trim(m.[客先名]) AS 顧客,
     Trim(d.[品番]) AS 品番,
     d.[納品数] AS 納品数,
-    d.[単価] AS 単価,
     d.[金額] AS 金額
 FROM
     [t_納品] AS d
@@ -153,13 +152,13 @@ def fetch_deliveries(
 
     rows = access_connector.fetch_all_dicts(conn, sql, params)
     if not rows:
-        return pd.DataFrame(columns=["納入日", "顧客", "品番", "納品数", "単価", "金額"])
+        return pd.DataFrame(columns=["納入日", "顧客", "品番", "納品数", "金額"])
 
     df = pd.DataFrame(rows)
     # 型整備
     if "納入日" in df.columns:
         df["納入日"] = pd.to_datetime(df["納入日"], errors="coerce")
-    for col in ("納品数", "単価", "金額"):
+    for col in ("納品数", "金額"):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     df["顧客"] = df["顧客"].fillna("（未設定）").astype(str)

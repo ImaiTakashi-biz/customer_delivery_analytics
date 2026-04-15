@@ -3,16 +3,14 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QBrush, QColor, QFont
 
-import pandas as pd
-
-
 def _format_with_commas(val: Any) -> str:
-    if pd.isna(val):
+    if _is_missing(val):
         return ""
     try:
         n = float(val)
@@ -25,6 +23,28 @@ def _format_with_commas(val: Any) -> str:
         return f"{int(rounded):,}"
     s = f"{rounded:,.2f}"
     return s.rstrip("0").rstrip(".")
+
+
+def _is_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, float):
+        return math.isnan(value)
+    try:
+        import pandas as pd  # Imported lazily to avoid loading pandas at startup.
+
+        return bool(pd.isna(value))
+    except Exception:
+        return False
+
+
+class _EmptyFrame:
+    columns: tuple[Any, ...] = ()
+    index: tuple[Any, ...] = ()
+    empty = True
+
+    def copy(self) -> "_EmptyFrame":
+        return self
 
 
 ROW_STYLES = {
@@ -46,16 +66,16 @@ COLUMN_STYLES = {
 class DataFrameTableModel(QAbstractTableModel):
     """読み取り専用の DataFrame モデル。"""
 
-    def __init__(self, df: Optional[pd.DataFrame] = None, parent=None):
+    def __init__(self, df: Optional[Any] = None, parent=None):
         super().__init__(parent)
-        self._df = df if df is not None else pd.DataFrame()
+        self._df = df if df is not None else _EmptyFrame()
 
-    def set_dataframe(self, df: pd.DataFrame) -> None:
+    def set_dataframe(self, df: Any) -> None:
         self.beginResetModel()
-        self._df = df if df is not None else pd.DataFrame()
+        self._df = df if df is not None else _EmptyFrame()
         self.endResetModel()
 
-    def dataframe(self) -> pd.DataFrame:
+    def dataframe(self) -> Any:
         return self._df
 
     def rowCount(self, parent=QModelIndex()) -> int:  # noqa: N802
@@ -91,7 +111,7 @@ class DataFrameTableModel(QAbstractTableModel):
                 "外部要因予測\n金額",
             ):
                 return _format_with_commas(value)
-            if pd.isna(value):
+            if _is_missing(value):
                 return ""
             if isinstance(value, float):
                 return f"{value:.2f}".rstrip("0").rstrip(".")
