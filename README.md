@@ -1,106 +1,88 @@
-# 顧客別納入分析システム（customer_delivery_analytics）
+# 顧客別納入分析システム
 
-営業・実務向けの **Windows デスクトップアプリ** です。Access（`.accdb`）の納入実績を **参照専用** で検索・集計し、**年次予測**・**グラフ**・**Excel 出力**まで一画面で扱えます。
-
-- **起動時に全件ロードはしません**（検索時に SQL で絞り込み取得）。
-- **exe は既定で onedir 配布**です。起動を速くし、`exe` 本体のサイズを抑えています。
-
-## 仕様書
-
-- `docs/specification_updated.md`
+Access（`.accdb`）の納入実績を参照し、検索・集計・年次予測・グラフ表示・Excel 出力までをまとめて扱う Windows 業務アプリです。  
+現在の GUI 実装は `tkinter` 版です。配布先 PC でも起動しやすいことを優先しています。
 
 ## 主な機能
 
-| 区分 | 内容 |
-|------|------|
-| 実績 | 期間・顧客・品番・集計単位での一覧表示 |
-| グラフ | 年別・月別推移（matplotlib）、予測結果のグラフ |
-| Excel | 一覧・年次予測結果の出力（openpyxl） |
-| 年次予測 | 検索で取得した明細を年次集計し、**直線延長（最小二乗）**・**重み付き回帰（直近重視）**・**外部要因予測（IIP・景気動向指数 CI）** の 3 系統を算出 |
-| 外部指標 | IIP / CI を公式ソースから取得し、SQLite（`%LOCALAPPDATA%\顧客別納入分析システム\`）にキャッシュ |
-| UI | PySide6。Web 風テーブル・日付入力・予測算出の説明・詳細ダイアログ |
+- 期間・顧客・品番・集計単位による納入実績検索
+- 年別・月別推移グラフの表示
+- 年次予測の算出
+- 予測算出詳細の説明表示
+- 一覧および予測結果の Excel 出力
+- Access DB の外部指標を使った予測補助
 
 ## 技術スタック
 
-- **Python** 3.10 以上推奨（開発・ビルドは 3.12 で確認）
-- **GUI**: PySide6  
-- **DB 接続**: pyodbc（Access ODBC 必須）  
-- **集計・予測**: pandas / numpy（加重最小二乗・線形延長）  
-- **グラフ**: matplotlib（Qt バックエンド）  
-- **Excel**: openpyxl  
-- **パッケージング**: PyInstaller 6 系（`--paths` / onedir 既定、onefile は任意）
+- Python 3.10 以上
+- GUI: `tkinter`
+- DB 接続: `pyodbc`
+- 集計・予測: `pandas` / `numpy`
+- グラフ: `matplotlib`
+- Excel 出力: `openpyxl`
+- 日付選択: `tkcalendar`
+- 配布: `PyInstaller`
 
-## 実行手順（開発時）
+## 起動方法
 
 ```powershell
-cd <リポジトリのルートパス>
+cd <リポジトリのルート>
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-pip install pyinstaller
 python -m app.main
 ```
 
-- **Access のパス**を変える場合: 環境変数 `CDA_ACCESS_DB` に `.accdb` のフルパスを設定。
-- 既定パスは `app/config/settings.py` の `DEFAULT_ACCESS_DB_PATH`（UNC の `.accdb` 実ファイル）です。社内環境に合わせて変更してください。
+補足:
+- `app/main.py` が起動点です。
+- `app/tk_app.py` に tkinter 版の画面実装があります。
+- Access の保存場所を変える場合は `CDA_ACCESS_DB` 環境変数を設定します。
 
-## exe 化・配布
+## 配布用 exe の作成
 
 ```powershell
 pip install pyinstaller
 .\build_exe.ps1
 ```
 
-| 項目 | 説明 |
-|------|------|
-| 出力 | `dist\顧客別納入分析システム\顧客別納入分析システム.exe`（**既定**。起動が速く、`exe` が小さい） |
-| 単一 exe | 必要な場合のみ: `$env:CDA_ONEFILE = "1"; .\build_exe.ps1` |
-| スクリプト文字コード | `build_exe.ps1` は **UTF-8（BOM 付き）** 推奨（日本語 exe 名の文字化け防止） |
-| ランタイムフック | リポジトリ直下の `pyi_rth_cda_dateutil.py` を `--runtime-hook` で同梱（`dateutil` / `six` と PySide6 の frozen 時衝突回避） |
-| 同梱の最適化 | `scipy` / `sklearn` / `pytest` / `pyarrow` を除外（exe 軽量化）。主要 **MSVC ランタイム DLL**（`vcruntime140` 等）を明示同梱 |
+既定は `onefile` 配布です。生成されるのは単体の `.exe` です。
 
-### 配布先 PC で必要なもの
+## フォルダ構成
 
-- **Microsoft Access Database Engine 等**、**Access 用 ODBC ドライバ**（64 位 exe なら 64 位ドライバ）。
-- 既定の accdb へ **ネットワークで到達できること**、または各 PC で `CDA_ACCESS_DB` を設定。
-- 外部指標の取得には **インターネット**（初回・月次更新時）。失敗時はキャッシュ利用を試みます。
-
-## 補足（import 順・frozen）
-
-- `app/main.py` では、PySide6（Shiboken）と `matplotlib.dates` が frozen 時に衝突しやすいため、**日付系の import を Qt より先に実行**しています。
-- `app/ui/main_window.py` は、`pandas`・検索ワーカー・集計サービスを遅延 import するようにして、初期表示を軽くしています。
-- exe ではさらに **`pyi_rth_cda_dateutil.py`** で `dateutil` 関連を先行ロードします。
-
-## フォルダ構成（抜粋）
-
-```
+```text
 customer_delivery_analytics/
 ├─ app/
-│   ├─ main.py              # エントリポイント
-│   ├─ config/settings.py  # 定数・パス解決（frozen 時は _MEIPASS 対応）
-│   ├─ db/                  # Access 接続
-│   ├─ infrastructure/      # AppData パス・外部指標 SQLite
-│   ├─ service/             # 集計・予測・Excel・外部指標取得
-│   ├─ ui/                  # メイン画面・テーマ・ワーカー等
-│   └─ utils/
-├─ docs/                    # 仕様書・アイコン（icon.png / icon.ico）
+│  ├─ main.py
+│  ├─ tk_app.py
+│  ├─ config/
+│  ├─ db/
+│  ├─ infrastructure/
+│  └─ service/
+├─ docs/
 ├─ requirements.txt
 ├─ build_exe.ps1
-├─ pyi_rth_cda_dateutil.py  # PyInstaller 用ランタイムフック（削除しないこと）
-├─ web_date_picker_demo.py  # 日付 UI 検証用スクリプト（任意）
-└─ README.md
+├─ README.md
+└─ .gitignore
 ```
 
-ビルド中間物は `build\`、成果物は `dist\` に出力されます（`.gitignore` 対象）。
+補足:
+- `app/ui/` には旧 PySide6 実装が残っていますが、現行の起動経路では使っていません。
+- `web_date_picker_demo.py` と `pyi_rth_cda_dateutil.py` は整理済みです。
+
+## 配布先 PC で必要なもの
+
+- Microsoft Access Database Engine または Access 用 ODBC ドライバ
+- Access の `.accdb` へ到達できるネットワーク権限
+- 外部指標を更新する場合はインターネット接続
 
 ## トラブルシュート
 
 | 現象 | 確認事項 |
-|------|----------|
-| exe 起動直後に `_SixMetaPathImporter` 等 | `build_exe.ps1` が `pyi_rth_cda_dateutil.py` を参照しているか、再ビルドしたか |
-| Access に接続できない | ODBC インストール、64/32 位の一致、`CDA_ACCESS_DB`・ファイアウォール・UNC 権限 |
-| ビルドした exe 名が文字化け | `build_exe.ps1` を UTF-8 BOM で保存してから再実行 |
+|---|---|
+| Access に接続できない | ODBC の 32/64 bit を確認、`CDA_ACCESS_DB` のパス確認、共有フォルダ権限確認 |
+| 画面の表示が崩れる | `pip install -r requirements.txt` の再実行、`matplotlib` / `tkcalendar` の導入確認 |
+| exe が起動しない | `.\build_exe.ps1` を再実行して再ビルド |
 
-## ライセンス・第三者素材
+## ライセンス
 
-利用ライブラリは各パッケージのライセンスに従います。アイコン・仕様書の権利は社内ルールに従ってください。
+利用ライブラリは各パッケージのライセンスに従います。社内配布ルールやデータ取り扱いルールもあわせて確認してください。

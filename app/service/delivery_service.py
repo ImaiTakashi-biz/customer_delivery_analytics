@@ -174,31 +174,25 @@ def aggregate_for_list(df: pd.DataFrame, mode: AggregateMode) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=LIST_COLUMNS)
 
-    years = df["納入日"].dt.year.rename("年")
-    months = df["納入日"].dt.month.rename("月")
+    work = df.copy()
+    work["年"] = work["納入日"].dt.year.astype(int)
+    work["月"] = work["納入日"].dt.month.astype(int)
 
     if mode == AggregateMode.BY_CUSTOMER:
-        g = df.groupby([df["顧客"], years, months], as_index=False, sort=True).agg(
+        g = work.groupby(["顧客", "年", "月"], as_index=False, sort=True).agg(
             納品数=("納品数", "sum"),
             金額=("金額", "sum"),
         )
         g.insert(1, "品番", "*")
     elif mode == AggregateMode.BY_PRODUCT:
-        g = df.groupby([df["品番"], years, months], as_index=False, sort=True).agg(
+        g = work.groupby(["品番", "年", "月"], as_index=False, sort=True).agg(
             納品数=("納品数", "sum"),
             金額=("金額", "sum"),
         )
         # 品番を先頭列付近にそろえるため顧客列を後付け
         g.insert(0, "顧客", "*")
-        # 列順: 顧客, 品番, 年, 月...
-        cols = ["顧客", "品番", "年", "月", "納品数", "金額"]
-        g = g[cols]
     else:  # BY_CUSTOMER_PRODUCT
-        g = df.groupby(
-            [df["顧客"], df["品番"], years, months],
-            as_index=False,
-            sort=True,
-        ).agg(
+        g = work.groupby(["顧客", "品番", "年", "月"], as_index=False, sort=True).agg(
             納品数=("納品数", "sum"),
             金額=("金額", "sum"),
         )
@@ -220,8 +214,9 @@ def yearly_totals_from_raw_deliveries(df: pd.DataFrame) -> pd.DataFrame:
     needed = {"納入日", "納品数", "金額"}
     if not needed.issubset(df.columns):
         return pd.DataFrame(columns=["年", "納品数", "金額"])
-    years = df["納入日"].dt.year.rename("年")
-    y = df.groupby(years, as_index=False, sort=True).agg(
+    work = df.copy()
+    work["年"] = work["納入日"].dt.year.astype(int)
+    y = work.groupby("年", as_index=False, sort=True).agg(
         納品数=("納品数", "sum"),
         金額=("金額", "sum"),
     )
@@ -239,8 +234,9 @@ def monthly_totals_from_raw_deliveries(df: pd.DataFrame) -> pd.DataFrame:
     needed = {"納入日", "納品数", "金額"}
     if not needed.issubset(df.columns):
         return pd.DataFrame(columns=["年月", "納品数", "金額"])
-    year_month = df["納入日"].dt.strftime("%Y-%m").rename("年月")
-    m = df.groupby(year_month, as_index=False, sort=True).agg(
+    work = df.copy()
+    work["年月"] = work["納入日"].dt.strftime("%Y-%m")
+    m = work.groupby("年月", as_index=False, sort=True).agg(
         納品数=("納品数", "sum"),
         金額=("金額", "sum"),
     )

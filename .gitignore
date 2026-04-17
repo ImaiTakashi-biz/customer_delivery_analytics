@@ -1,40 +1,25 @@
-# =============================================================================
-# 顧客別納入分析システム（customer_delivery_analytics）
-# PySide6 / PyInstaller / Windows 業務 PC 想定
-# =============================================================================
-
-# --- Python 実行時・キャッシュ ---
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
 .Python
 
-# --- パッケージング（setuptools 等）---
-*.egg-info/
-*.egg
-.eggs/
-pip-wheel-metadata/
-
-# --- PyInstaller（build_exe.ps1）---
-# 出力: dist\顧客別納入分析システム.exe、build\pyi_spec、build\pyi_work
-# ルートに .spec が残る場合があるため *.spec も除外
-build/
-dist/
-*.spec
-
-# --- 仮想環境 ---
+# Virtual environments
 .venv/
 venv/
 ENV/
 env/
 
-# --- 環境変数・ローカル秘密（コミット禁止）---
-.env
-.env.*
-!.env.example
+# Build / packaging
+build/
+dist/
+*.spec
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
 
-# --- テスト・カバレッジ ---
+# Test / coverage / cache
 .pytest_cache/
 .coverage
 .coverage.*
@@ -44,39 +29,40 @@ htmlcov/
 coverage.xml
 *.cover
 .hypothesis/
-
-# --- 型チェック・リンター ---
 .mypy_cache/
 .ruff_cache/
 .dmypy.json
 dmypy.json
 
-# --- IDE / エディタ ---
+# IDE / editor
 .idea/
+.vscode/
 *.iml
 *.iws
 *.ipr
-.vscode/
 *.swp
 *.swo
 *~
 
-# --- OS（Windows 中心）---
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# OS
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
-# --- ログ・一時ファイル ---
+# Logs / temp
 *.log
 *.tmp
 *.temp
 *.bak
 
-# --- Excel：エクスポート・一時保存の誤コミット防止 ---
-# Office が開いている間に作られるロックファイル（~$ で始まる）
+# Excel exports / temporary files
 ~$*.xlsx
 tmp_*.xlsx
-# 必要なら *.xlsx も有効化（テンプレート等をリポジトリ管理する場合はコメントアウト）
-# *.xlsx
+*.xlsx.bak
